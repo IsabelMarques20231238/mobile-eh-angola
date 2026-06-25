@@ -14,11 +14,11 @@ class SignUpScreen extends StatefulWidget {
 
 class _SignUpScreenState extends State<SignUpScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _name = TextEditingController(text: 'Carlos Mendes');
-  final _email = TextEditingController(text: 'carlos@isptec.co.ao');
-  final _password = TextEditingController(text: '123456');
-  final _confirm = TextEditingController(text: '123456');
-  String _institution = 'ISPTEC';
+  final _name = TextEditingController();
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  final _confirm = TextEditingController();
+  String _profession = 'ESTUDANTE';
   bool _loading = false;
 
   @override
@@ -39,14 +39,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
         email: _email.text.trim(),
         password: _password.text,
         passwordConfirmation: _confirm.text,
+        profession: _profession,
       );
-      if (mounted) {
-        Navigator.pushReplacementNamed(
-          context,
-          AppRoutes.verifyEmail,
-          arguments: _email.text.trim(),
-        );
-      }
+      if (mounted) Navigator.pushReplacementNamed(context, AppRoutes.feed);
     } on ApiException catch (error) {
       if (mounted) _showError(error.message);
     } finally {
@@ -105,13 +100,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   validator: (value) => value != _password.text ? 'As palavras-passe nao coincidem' : null,
                 ),
                 const SizedBox(height: 12),
-                const Text('Selecione a Instituicao', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
+                const Text('Profissão', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 5),
                 DropdownButtonFormField<String>(
-                  value: _institution,
+                  value: _profession,
                   decoration: const InputDecoration(),
-                  items: const ['ISPTEC', 'UAN', 'UCAN', 'DCSA'].map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 12)))).toList(),
-                  onChanged: (v) => setState(() => _institution = v ?? _institution),
+                  items: const [
+                    DropdownMenuItem(value: 'ESTUDANTE', child: Text('Estudante', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'PROFESSOR', child: Text('Professor', style: TextStyle(fontSize: 12))),
+                    DropdownMenuItem(value: 'OUTRO', child: Text('Outro', style: TextStyle(fontSize: 12))),
+                  ],
+                  onChanged: (v) => setState(() => _profession = v ?? _profession),
                 ),
                 const SizedBox(height: 16),
                 const DividerWithText(text: 'ou'),

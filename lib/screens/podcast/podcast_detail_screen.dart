@@ -104,11 +104,11 @@ class _PodcastDetailScreenState extends State<PodcastDetailScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          _isPlaying ? 'A reproduzir…' : 'Agora Tocando...',
+          _isPlaying ? 'A reproduzir…' : 'Agora Tocando',
           style: const TextStyle(
             color: AppColors.textMain,
-            fontSize: 16,
-            fontWeight: FontWeight.w900,
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
           ),
         ),
         shape: const Border(bottom: BorderSide(color: AppColors.borderLight)),
@@ -117,12 +117,13 @@ class _PodcastDetailScreenState extends State<PodcastDetailScreen> {
         padding: const EdgeInsets.fromLTRB(20, 42, 20, 26),
         children: [
           Text(
-            episode.show,
+            episode.show.toUpperCase(),
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: AppColors.muted,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
             ),
           ),
           const SizedBox(height: 12),
@@ -159,9 +160,9 @@ class _PodcastDetailScreenState extends State<PodcastDetailScreen> {
             episode.host,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: AppColors.textSecondary,
+              color: AppColors.wine,
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 34),

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_state.dart';
+import '../../services/forum_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/shared_widgets.dart';
+import 'forum_topic_detail_screen.dart';
 
 class TopicoPrivadoScreen extends StatefulWidget {
   final ForumTopic? topic;
@@ -16,6 +20,8 @@ class TopicoPrivadoScreen extends StatefulWidget {
 class _TopicoPrivadoScreenState extends State<TopicoPrivadoScreen> {
   final _reasonController = TextEditingController();
   final _codeControllers = List.generate(6, (_) => TextEditingController());
+  bool _isJoining = false;
+  bool _isRequesting = false;
 
   ForumTopic get _topic =>
       widget.topic ??
@@ -81,9 +87,11 @@ class _TopicoPrivadoScreenState extends State<TopicoPrivadoScreen> {
             const SizedBox(height: 22),
             _AccessRequestCard(
               controller: _reasonController,
-              onSubmit: _submitRequest,
+              onSubmit: _isRequesting ? null : _submitRequest,
+              isRequesting: _isRequesting,
               codeControllers: _codeControllers,
-              onCodeSubmit: _submitCode,
+              onCodeSubmit: _isJoining ? null : _submitCode,
+              isJoining: _isJoining,
             ),
             const SizedBox(height: 32),
             const _SecurityNote(),
@@ -94,23 +102,62 @@ class _TopicoPrivadoScreenState extends State<TopicoPrivadoScreen> {
     );
   }
 
-  void _submitRequest() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Pedido enviado ao moderador.')),
-    );
+  Future<void> _submitRequest() async {
+    if (!AuthState.requireAuth(context)) return;
+    final message = _reasonController.text.trim();
+    if (message.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escreve o motivo do teu pedido.')),
+      );
+      return;
+    }
+    final topicId = widget.topic?.id;
+    if (topicId == null || topicId <= 0) return;
+    setState(() => _isRequesting = true);
+    try {
+      await ForumService.instance.requestAccess(topicId, message);
+      if (!mounted) return;
+      _reasonController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido enviado ao moderador.')),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _isRequesting = false);
+    }
   }
 
-  void _submitCode() {
-    final code = _codeControllers.map((c) => c.text).join();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          code.length == 6
-              ? 'Código enviado para validação.'
-              : 'Introduz os 6 caracteres do código.',
-        ),
-      ),
-    );
+  Future<void> _submitCode() async {
+    if (!AuthState.requireAuth(context)) return;
+    final code = _codeControllers.map((c) => c.text).join().trim();
+    if (code.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Introduz os 6 caracteres do código.')),
+      );
+      return;
+    }
+    final topic = widget.topic;
+    if (topic == null || topic.id <= 0) return;
+    setState(() => _isJoining = true);
+    try {
+      await ForumService.instance.joinWithCode(topic.id, code);
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => ForumTopicDetailScreen(topic: topic)),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isJoining = false);
+      final msg = (e.statusCode == 422 || e.statusCode == 403)
+          ? 'Código inválido. Verifica e tenta novamente.'
+          : e.message;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: AppColors.wine, content: Text(msg, style: const TextStyle(color: Colors.white))),
+      );
+    }
   }
 }
 
@@ -300,14 +347,18 @@ class _SummaryStat extends StatelessWidget {
 class _AccessRequestCard extends StatelessWidget {
   final TextEditingController controller;
   final List<TextEditingController> codeControllers;
-  final VoidCallback onSubmit;
-  final VoidCallback onCodeSubmit;
+  final VoidCallback? onSubmit;
+  final VoidCallback? onCodeSubmit;
+  final bool isRequesting;
+  final bool isJoining;
 
   const _AccessRequestCard({
     required this.controller,
     required this.codeControllers,
-    required this.onSubmit,
-    required this.onCodeSubmit,
+    this.onSubmit,
+    this.onCodeSubmit,
+    this.isRequesting = false,
+    this.isJoining = false,
   });
 
   @override
@@ -388,7 +439,12 @@ class _AccessRequestCard extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              child: const Text('Enviar pedido'),
+              child: isRequesting
+                  ? const SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Text('Enviar pedido'),
             ),
           ),
           const SizedBox(height: 40),
@@ -445,10 +501,8 @@ class _AccessRequestCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             height: 52,
-            child: OutlinedButton.icon(
+            child: OutlinedButton(
               onPressed: onCodeSubmit,
-              icon: const Icon(Icons.lock_outline_rounded, size: 20),
-              label: const Text('Entrar com código'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFF7B001C),
                 side: const BorderSide(color: Color(0xFF7B001C)),
@@ -460,6 +514,19 @@ class _AccessRequestCard extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                 ),
               ),
+              child: isJoining
+                  ? const SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(color: Color(0xFF7B001C), strokeWidth: 2),
+                    )
+                  : const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_outline_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text('Entrar com código'),
+                      ],
+                    ),
             ),
           ),
         ],

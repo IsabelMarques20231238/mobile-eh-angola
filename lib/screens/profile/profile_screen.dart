@@ -3,6 +3,9 @@ import '../admin/admin_panel_screen.dart';
 import 'edit_profile_screen.dart';
 import 'saved_items_screen.dart';
 import 'settings_screen.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_service.dart';
+import '../../services/auth_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -92,14 +95,20 @@ class _ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = AuthState.instance.user;
+    final initials = AuthState.instance.initials;
+    final role = AuthState.instance.displayRole.toUpperCase();
+    final name = user?.name ?? 'Utilizador';
+    final profession = user?.profession ?? '';
+
     return Column(
       children: [
-        const CircleAvatar(
+        CircleAvatar(
           radius: 26,
           backgroundColor: AppColors.winePill,
           child: Text(
-            'CM',
-            style: TextStyle(
+            initials,
+            style: const TextStyle(
               color: AppColors.wine,
               fontSize: 14,
               fontWeight: FontWeight.w900,
@@ -107,9 +116,9 @@ class _ProfileHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
-          'Carlos Mendes',
-          style: TextStyle(
+        Text(
+          name,
+          style: const TextStyle(
             color: AppColors.textMain,
             fontSize: 17,
             fontWeight: FontWeight.w900,
@@ -122,9 +131,9 @@ class _ProfileHeader extends StatelessWidget {
             color: AppColors.wine,
             borderRadius: BorderRadius.circular(3),
           ),
-          child: const Text(
-            'SUPERADMIN',
-            style: TextStyle(
+          child: Text(
+            role,
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 9,
               fontWeight: FontWeight.w900,
@@ -132,30 +141,42 @@ class _ProfileHeader extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 7),
-        const Text(
-          'ISPTEC · DCSA',
-          style: TextStyle(
-            color: AppColors.textSecondary,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 12),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 28),
-          child: Text(
-            'Estudante de Economia interessado em história monetária e desenvolvimento...',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.muted,
+        if (profession.isNotEmpty) ...[
+          const SizedBox(height: 7),
+          Text(
+            _professionLabel(profession),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
               fontSize: 11,
-              height: 1.35,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ),
+        ],
+        if (user?.bio != null) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Text(
+              user!.bio!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  String _professionLabel(String p) {
+    switch (p) {
+      case 'ESTUDANTE': return 'Estudante';
+      case 'PROFESSOR': return 'Professor';
+      default: return p;
+    }
   }
 }
 
@@ -459,13 +480,18 @@ class _ActionButtons extends StatelessWidget {
                     child: const Text('Cancelar'),
                   ),
                   TextButton(
-                    onPressed: () {
+                    onPressed: () async {
                       Navigator.pop(ctx);
-                      Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        '/login',
-                        (_) => false,
-                      );
+                      try {
+                        await AuthService(ApiClient.instance).logout();
+                      } catch (_) {}
+                      if (context.mounted) {
+                        Navigator.pushNamedAndRemoveUntil(
+                          context,
+                          '/login',
+                          (_) => false,
+                        );
+                      }
                     },
                     child: const Text(
                       'Sair',

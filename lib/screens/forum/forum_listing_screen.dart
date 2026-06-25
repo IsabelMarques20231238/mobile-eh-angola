@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
-import '../../models/mock_data.dart';
 import '../../routes/app_routes.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_state.dart';
+import '../../services/forum_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/shared_widgets.dart';
@@ -10,6 +14,7 @@ import 'criar_topico_screen.dart';
 import 'forum_topic_detail_screen.dart';
 import 'subscricoes_screen.dart';
 import 'topico_privado_screen.dart';
+import '../notifications/notifications_screen.dart';
 
 class ForumListingScreen extends StatefulWidget {
   const ForumListingScreen({super.key});
@@ -20,41 +25,68 @@ class ForumListingScreen extends StatefulWidget {
 
 class _ForumListingScreenState extends State<ForumListingScreen> {
   final _searchController = TextEditingController();
-  final _chips = ['Para ti', 'Economia', 'História', 'Petróleo', 'Político'];
-  late List<ForumTopic> _topics;
+  List<ForumTopic> _topics = [];
+  List<ForumCategory> _categories = [];
   int _selectedChip = 0;
   bool _showSearch = false;
+  bool _isLoading = false;
+  String? _error;
+  Timer? _searchTimer;
+
+  // Chip 0 → "Para ti" (filter=for-you), chips 1..N → categories from API
+  List<String> get _chips =>
+      ['Para ti', ..._categories.map((c) => c.name)];
+
+  String? get _activeFilter => _selectedChip == 0 ? 'for-you' : null;
+  String? get _activeCategory =>
+      _selectedChip > 0 && _selectedChip <= _categories.length
+          ? _categories[_selectedChip - 1].name
+          : null;
 
   @override
   void initState() {
     super.initState();
-    _topics = buildMockTopics();
+    _loadTopics();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchTimer?.cancel();
     super.dispose();
   }
 
-  List<ForumTopic> get _filtered {
-    final cats = {
-      1: TopicCategory.economia,
-      2: TopicCategory.historia,
-      3: TopicCategory.petroleo,
-      4: TopicCategory.politica,
-    };
-    final query = _searchController.text.trim().toLowerCase();
-    return _topics.where((topic) {
-      final matchesChip =
-          _selectedChip == 0 || topic.category == cats[_selectedChip];
-      final matchesQuery =
-          query.isEmpty ||
-          topic.title.toLowerCase().contains(query) ||
-          topic.excerpt.toLowerCase().contains(query) ||
-          topic.authorName.toLowerCase().contains(query);
-      return matchesChip && matchesQuery;
-    }).toList();
+  Future<void> _loadTopics() async {
+    setState(() { _isLoading = true; _error = null; });
+    try {
+      final result = await ForumService.instance.getTopics(
+        filter: _activeFilter,
+        category: _activeCategory,
+        search: _searchController.text.trim().isNotEmpty
+            ? _searchController.text.trim()
+            : null,
+      );
+      if (!mounted) return;
+      setState(() {
+        _topics = result.topics;
+        if (result.categories.isNotEmpty) _categories = result.categories;
+        _isLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e.message; _isLoading = false; });
+    }
+  }
+
+  void _onSearchChanged(String _) {
+    _searchTimer?.cancel();
+    _searchTimer = Timer(const Duration(milliseconds: 500), _loadTopics);
+    setState(() {});
+  }
+
+  void _onChipSelected(int index) {
+    setState(() => _selectedChip = index);
+    _loadTopics();
   }
 
   @override
@@ -72,8 +104,9 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
               EhAngolaHeader(
                 searchController: _searchController,
                 showSearch: _showSearch,
-                onSearchChanged: (_) => setState(() {}),
+                onSearchChanged: _onSearchChanged,
                 onSearchTap: () => setState(() => _showSearch = !_showSearch),
+                onNotificationsTap: () => showNotificationsPanel(context),
               ),
               Container(
                 width: double.infinity,
@@ -82,45 +115,59 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
                 child: _ForumChipBar(
                   labels: _chips,
                   selected: _selectedChip,
-                  onSelected: (index) => setState(() {
-                    _selectedChip = index;
-                  }),
+                  onSelected: _onChipSelected,
                 ),
               ),
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                  children: [
-                    _ForumHero(
-                      onMyForums: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SubscricoesScreen(),
-                        ),
-                      ),
-                      onSaved: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SavedItemsScreen(),
-                        ),
-                      ),
-                      onCreate: _openCreateTopic,
-                    ),
-                    const SizedBox(height: 16),
-                    if (_filtered.isEmpty)
-                      const _EmptyForumState()
-                    else
-                      ..._filtered.map(
-                        (topic) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _TopicCard(
-                            key: ValueKey(topic.title),
-                            topic: topic,
-                            onTap: () => _openTopic(topic),
+                child: RefreshIndicator(
+                  color: AppColors.wine,
+                  onRefresh: _loadTopics,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                    children: [
+                      _ForumHero(
+                        onMyForums: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SubscricoesScreen(),
                           ),
                         ),
+                        onSaved: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SavedItemsScreen(),
+                          ),
+                        ),
+                        onCreate: _openCreateTopic,
                       ),
-                  ],
+                      const SizedBox(height: 16),
+                      if (_isLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40),
+                          child: Center(
+                            child: CircularProgressIndicator(color: AppColors.wine),
+                          ),
+                        )
+                      else if (_error != null)
+                        _ForumErrorState(
+                          message: _error!,
+                          onRetry: _loadTopics,
+                        )
+                      else if (_topics.isEmpty)
+                        const _EmptyForumState()
+                      else
+                        ..._topics.map(
+                          (topic) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _TopicCard(
+                              key: ValueKey(topic.id > 0 ? topic.id : topic.title),
+                              topic: topic,
+                              onTap: () => _openTopic(topic),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -132,11 +179,11 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
   }
 
   void _openTopic(ForumTopic topic) {
-    final isPrivate = topic.visibility == TopicVisibility.privado;
+    final needsAccess = topic.visibility == TopicVisibility.privado && !topic.hasAccess;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => isPrivate
+        builder: (_) => needsAccess
             ? TopicoPrivadoScreen(topic: topic)
             : ForumTopicDetailScreen(topic: topic),
       ),
@@ -144,9 +191,10 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
   }
 
   void _openCreateTopic() {
+    if (!AuthState.requireAuth(context)) return;
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const CriarTopicoScreen()),
+      AppRoutes.bottomSlideRoute(builder: (_) => const CriarTopicoScreen()),
     );
   }
 
@@ -236,54 +284,41 @@ class _ForumHero extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF7A0022).withValues(alpha: .55),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 10),
-                      child: Text(
-                        'SIMULAR:',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
+              ListenableBuilder(
+                listenable: AuthState.instance,
+                builder: (context, _) {
+                  if (!AuthState.instance.isAuthenticated) {
+                    return const SizedBox.shrink();
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 20),
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 14,
+                        children: [
+                          _HeroActionButton(
+                            icon: Icons.person_outline_rounded,
+                            label: 'Meus Fóruns',
+                            onTap: onMyForums,
+                          ),
+                          _HeroActionButton(
+                            icon: Icons.bookmark_border_rounded,
+                            label: 'Guardados',
+                            onTap: onSaved,
+                          ),
+                          _HeroActionButton(
+                            icon: Icons.add_rounded,
+                            label: 'Criar Tópico',
+                            light: true,
+                            onTap: onCreate,
+                          ),
+                        ],
                       ),
-                    ),
-                    _HeroRolePill(text: '🎓 MEMBRO', selected: true),
-                    _HeroRolePill(text: '👥 ADMINS'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
-              Wrap(
-                spacing: 14,
-                runSpacing: 14,
-                children: [
-                  _HeroActionButton(
-                    icon: Icons.person_outline_rounded,
-                    label: 'Meus Fóruns',
-                    onTap: onMyForums,
-                  ),
-                  _HeroActionButton(
-                    icon: Icons.bookmark_border_rounded,
-                    label: 'Guardados',
-                    onTap: onSaved,
-                  ),
-                  _HeroActionButton(
-                    icon: Icons.add_rounded,
-                    label: 'Criar Tópico',
-                    light: true,
-                    onTap: onCreate,
-                  ),
-                ],
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -304,15 +339,27 @@ class _ForumChipBar extends StatelessWidget {
     required this.onSelected,
   });
 
+  static IconData _iconForLabel(String label) {
+    final l = label.toLowerCase();
+    if (l == 'para ti') return Icons.star_border_rounded;
+    if (l.contains('econ') || l.contains('finanç') || l.contains('financ')) return Icons.trending_up_rounded;
+    if (l.contains('hist') || l.contains('cultur') || l.contains('tradição')) return Icons.menu_book_outlined;
+    if (l.contains('petr') || l.contains('energ') || l.contains('gás') || l.contains('gas')) return Icons.local_gas_station_outlined;
+    if (l.contains('polít') || l.contains('polit') || l.contains('govern') || l.contains('estado')) return Icons.account_balance_outlined;
+    if (l.contains('tecnol') || l.contains('digital') || l.contains('inovat')) return Icons.devices_rounded;
+    if (l.contains('saúde') || l.contains('saude') || l.contains('médic') || l.contains('medic')) return Icons.health_and_safety_outlined;
+    if (l.contains('educ') || l.contains('ensino') || l.contains('escol')) return Icons.school_outlined;
+    if (l.contains('desport') || l.contains('futebol') || l.contains('sport')) return Icons.sports_soccer_rounded;
+    if (l.contains('social') || l.contains('socie') || l.contains('comuni')) return Icons.people_outline_rounded;
+    if (l.contains('ambient') || l.contains('natur') || l.contains('ecolog')) return Icons.eco_outlined;
+    if (l.contains('arte') || l.contains('músic') || l.contains('music') || l.contains('cine')) return Icons.palette_outlined;
+    if (l.contains('negóci') || l.contains('negoci') || l.contains('empresa')) return Icons.business_outlined;
+    if (l.contains('agricultur') || l.contains('agro')) return Icons.grass_outlined;
+    return Icons.label_outline_rounded;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final icons = [
-      Icons.star_border_rounded,
-      Icons.trending_up_rounded,
-      Icons.menu_book_outlined,
-      Icons.local_gas_station_outlined,
-      Icons.account_balance_outlined,
-    ];
     return SizedBox(
       height: 46,
       child: ListView.separated(
@@ -322,6 +369,7 @@ class _ForumChipBar extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 10),
         itemBuilder: (_, index) {
           final active = selected == index;
+          final icon = _iconForLabel(labels[index]);
           return InkWell(
             onTap: () => onSelected(index),
             borderRadius: BorderRadius.circular(23),
@@ -338,7 +386,7 @@ class _ForumChipBar extends StatelessWidget {
               child: Row(
                 children: [
                   Icon(
-                    icons[index],
+                    icon,
                     size: 19,
                     color: active ? Colors.white : const Color(0xFF64748B),
                   ),
@@ -374,7 +422,6 @@ class _TopicCard extends StatefulWidget {
 class _TopicCardState extends State<_TopicCard> {
   late int _likes;
   late bool _liked;
-  late int _savedCount;
   late bool _saved;
 
   @override
@@ -382,8 +429,31 @@ class _TopicCardState extends State<_TopicCard> {
     super.initState();
     _likes = widget.topic.likes;
     _liked = widget.topic.isLiked;
-    _savedCount = (widget.topic.comments * 0.16).round().clamp(1, 40);
-    _saved = false;
+    _saved = widget.topic.isSaved;
+  }
+
+  Future<void> _toggleLike() async {
+    if (!AuthState.requireAuth(context)) return;
+    setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
+    if (widget.topic.id <= 0) return;
+    try {
+      final r = await ForumService.instance.likeTopic(widget.topic.id);
+      if (mounted) setState(() { _liked = r.liked; _likes = r.likesCount; });
+    } on ApiException {
+      if (mounted) setState(() { _liked = !_liked; _likes += _liked ? -1 : 1; });
+    }
+  }
+
+  Future<void> _toggleSave() async {
+    if (!AuthState.requireAuth(context)) return;
+    setState(() => _saved = !_saved);
+    if (widget.topic.id <= 0) return;
+    try {
+      final bookmarked = await ForumService.instance.bookmarkTopic(widget.topic.id);
+      if (mounted) setState(() => _saved = bookmarked);
+    } on ApiException {
+      if (mounted) setState(() => _saved = !_saved);
+    }
   }
 
   @override
@@ -497,20 +567,15 @@ class _TopicCardState extends State<_TopicCard> {
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
             child: ForumInteractionBar(
               compact: true,
+              locked: !AuthState.instance.isAuthenticated,
               likes: _likes,
               liked: _liked,
               comments: topic.comments,
-              savedCount: _savedCount,
+
               saved: _saved,
-              onLike: () => setState(() {
-                _liked = !_liked;
-                _likes += _liked ? 1 : -1;
-              }),
+              onLike: _toggleLike,
               onComment: widget.onTap,
-              onSave: () => setState(() {
-                _saved = !_saved;
-                _savedCount += _saved ? 1 : -1;
-              }),
+              onSave: _toggleSave,
             ),
           ),
         ],
@@ -694,31 +759,6 @@ class _HeroActionButton extends StatelessWidget {
   }
 }
 
-class _HeroRolePill extends StatelessWidget {
-  final String text;
-  final bool selected;
-
-  const _HeroRolePill({required this.text, this.selected = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: selected ? Colors.white : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: selected ? AppColors.wine : Colors.white70,
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
 
 class _PinnedLabel extends StatelessWidget {
   const _PinnedLabel();
@@ -739,6 +779,46 @@ class _PinnedLabel extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ForumErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _ForumErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE6ECF3)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.wifi_off_rounded, color: Color(0xFF94A3B8), size: 44),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF334155),
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(foregroundColor: AppColors.wine),
+            child: const Text('Tentar novamente', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
     );
   }
 }

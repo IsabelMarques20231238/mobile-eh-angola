@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
-import '../../models/mock_data.dart';
+import '../../routes/app_routes.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_state.dart';
+import '../../services/forum_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/shared_widgets.dart';
+import 'criar_topico_screen.dart';
 
 class ForumTopicDetailScreen extends StatefulWidget {
   final ForumTopic topic;
+  final int? highlightCommentId;
 
-  const ForumTopicDetailScreen({super.key, required this.topic});
+  const ForumTopicDetailScreen({super.key, required this.topic, this.highlightCommentId});
 
   @override
   State<ForumTopicDetailScreen> createState() => _ForumTopicDetailScreenState();
@@ -20,21 +25,75 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
   final _replyFocusNode = FocusNode();
   final _scrollController = ScrollController();
   final _replySectionKey = GlobalKey();
-  late List<ForumComment> _comments;
+  List<ForumComment> _comments = [];
+  late ForumTopic _topic;
   late int _likes;
   late bool _liked;
-  late int _savedCount;
   late bool _saved;
+  String? _topicBody;
+  List<String> _topicTags = [];
+  bool _isLoadingComments = false;
+  bool _isLoadingTopic = false;
+  String? _commentsError;
+  String? _topicError;
   bool _showSearch = false;
+  int? _replyParentId;
+  String? _replyToName;
+  // Highlight & scroll
+  final Map<int, GlobalKey> _commentKeys = {};
+  int? _scrollTargetId;      // ID do comentário de topo para onde rolar
+  int? _autoExpandParentId;  // ID do comentário de topo cujas replies se expandem auto
+  int? _activeHighlightId;   // ID do comentário/reply a destacar
 
   @override
   void initState() {
     super.initState();
-    _comments = buildMockComments();
+    _topic = widget.topic;
     _likes = widget.topic.likes;
     _liked = widget.topic.isLiked;
-    _savedCount = 25;
-    _saved = false;
+    _saved = widget.topic.isSaved;
+    // Se veio de uma notificação, o título está vazio — precisamos de carregar
+    if (widget.topic.id > 0) _loadTopicDetail();
+  }
+
+  Future<void> _loadTopicDetail() async {
+    final needsTopicLoad = _topic.title.isEmpty;
+    setState(() {
+      _isLoadingComments = true;
+      _isLoadingTopic = needsTopicLoad;
+      _commentsError = null;
+      _topicError = null;
+    });
+    try {
+      final detail = await ForumService.instance.getTopicDetail(_topic.id);
+      if (!mounted) return;
+      setState(() {
+        if (detail.topic != null) _topic = detail.topic!;
+        _topicBody = detail.body.isNotEmpty ? detail.body : null;
+        _likes = detail.likesCount;
+        _liked = detail.isLiked;
+        _saved = detail.isSaved;
+        _comments = detail.comments;
+        _topicTags = detail.tags;
+        _isLoadingComments = false;
+        _isLoadingTopic = false;
+      });
+      _resolveHighlight();
+      _scheduleScrollToHighlight();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      final friendlyMsg = (e.statusCode == 404 || e.statusCode == 403)
+          ? 'Tópico não encontrado ou sem acesso.'
+          : e.message.contains('No query results')
+              ? 'Tópico não encontrado.'
+              : e.message;
+      setState(() {
+        if (needsTopicLoad) _topicError = friendlyMsg;
+        _commentsError = needsTopicLoad ? null : friendlyMsg;
+        _isLoadingComments = false;
+        _isLoadingTopic = false;
+      });
+    }
   }
 
   @override
@@ -69,31 +128,95 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
         children: [
           const _BackToForumHeader(),
           const SizedBox(height: 28),
+          if (_isLoadingTopic)
+            Container(
+              height: 220,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: const Color(0xFFE6ECF3)),
+              ),
+              child: const Center(
+                child: CircularProgressIndicator(color: AppColors.wine),
+              ),
+            )
+          else if (_topicError != null)
+            Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(color: const Color(0xFFE6ECF3)),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: AppColors.wine, size: 36),
+                  const SizedBox(height: 12),
+                  Text(
+                    _topicError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: _loadTopicDetail,
+                    child: const Text('Tentar novamente', style: TextStyle(color: AppColors.wine)),
+                  ),
+                ],
+              ),
+            )
+          else
           _TopicBodyCard(
-            topic: widget.topic,
+            topic: _topic,
+            fullBody: _topicBody,
             likes: _likes,
             liked: _liked,
             comments: _commentCount,
-            savedCount: _savedCount,
             saved: _saved,
             onLike: _toggleLike,
             onSave: _toggleSave,
             onComment: _scrollToReply,
+            onEdit: _topic.permissions.canEdit ? _openEdit : null,
           ),
-          const SizedBox(height: 32),
-          _ReplyComposer(
-            key: _replySectionKey,
-            controller: _replyController,
-            focusNode: _replyFocusNode,
-            onSend: _sendComment,
-          ),
-          const SizedBox(height: 36),
+          if (_topic.permissions.canComment) ...[
+            const SizedBox(height: 32),
+            _ReplyComposer(
+              key: _replySectionKey,
+              controller: _replyController,
+              focusNode: _replyFocusNode,
+              onSend: _sendComment,
+              replyToName: _replyToName,
+              onCancelReply: _cancelReply,
+            ),
+            const SizedBox(height: 36),
+          ] else
+            const SizedBox(height: 32),
           _RepliesHeader(count: _commentCount),
           const SizedBox(height: 20),
+          if (_isLoadingComments)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: CircularProgressIndicator(color: AppColors.wine)),
+            )
+          else if (_commentsError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                _commentsError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.muted, fontSize: 13),
+              ),
+            )
+          else
           ..._comments.asMap().entries.map((entry) {
             final i = entry.key;
             final comment = entry.value;
+            final commentKey = _commentKeys.putIfAbsent(
+                comment.numericId, () => GlobalKey());
+            final isHighlighted = _activeHighlightId == comment.numericId;
+            final isParent = _autoExpandParentId == comment.numericId;
             return Column(
+              key: commentKey,
               children: [
                 if (i > 0)
                   const Divider(color: Color(0xFFE8EDF3), height: 1),
@@ -101,7 +224,10 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 20),
                   child: _CommentCard(
                     comment: comment,
-                    onReply: () => _startReply(comment.authorName),
+                    onReply: _startReply,
+                    isHighlighted: isHighlighted,
+                    highlightedReplyId: isParent ? _activeHighlightId : null,
+                    autoExpandReplies: isParent,
                   ),
                 ),
               ],
@@ -112,18 +238,46 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
     );
   }
 
-  void _toggleLike() {
-    setState(() {
-      _liked = !_liked;
-      _likes += _liked ? 1 : -1;
-    });
+  Future<void> _toggleLike() async {
+    if (!AuthState.requireAuth(context)) return;
+    setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
+    if (_topic.id <= 0) return;
+    try {
+      final r = await ForumService.instance.likeTopic(_topic.id);
+      if (mounted) setState(() { _liked = r.liked; _likes = r.likesCount; });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() { _liked = !_liked; _likes += _liked ? -1 : 1; });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
-  void _toggleSave() {
-    setState(() {
-      _saved = !_saved;
-      _savedCount += _saved ? 1 : -1;
-    });
+  Future<void> _toggleSave() async {
+    if (!AuthState.requireAuth(context)) return;
+    setState(() => _saved = !_saved);
+    if (_topic.id <= 0) return;
+    try {
+      final bookmarked = await ForumService.instance.bookmarkTopic(_topic.id);
+      if (mounted) setState(() => _saved = bookmarked);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _saved = !_saved);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _openEdit() async {
+    final refreshed = await Navigator.push<bool>(
+      context,
+      AppRoutes.bottomSlideRoute(
+        builder: (_) => CriarTopicoScreen(
+          editTopic: _topic,
+          editBody: _topicBody,
+          editTags: _topicTags,
+        ),
+      ),
+    );
+    if (refreshed == true && mounted) _loadTopicDetail();
   }
 
   void _scrollToReply() {
@@ -137,8 +291,12 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
     );
   }
 
-  void _startReply(String author) {
-    _replyController.text = '@$author ';
+  void _startReply(ForumComment comment) {
+    setState(() {
+      _replyParentId = comment.numericId > 0 ? comment.numericId : null;
+      _replyToName = comment.authorName;
+    });
+    _replyController.text = '@${comment.authorName} ';
     _replyController.selection = TextSelection.fromPosition(
       TextPosition(offset: _replyController.text.length),
     );
@@ -146,27 +304,105 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
     _replyFocusNode.requestFocus();
   }
 
-  void _sendComment() {
+  void _cancelReply() {
+    final prefix = _replyToName != null ? '@$_replyToName ' : null;
+    setState(() { _replyParentId = null; _replyToName = null; });
+    if (prefix != null && _replyController.text.startsWith(prefix)) {
+      _replyController.text = _replyController.text.substring(prefix.length);
+    }
+  }
+
+  Future<void> _sendComment() async {
+    if (!AuthState.requireAuth(context)) return;
     final text = _replyController.text.trim();
     if (text.isEmpty) return;
-
-    setState(() {
-      _comments.insert(
-        0,
-        ForumComment(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          authorName: 'Novo Membro',
-          authorInitials: 'NM',
-          avatarBg: const Color(0xFFEC4899),
-          avatarFg: Colors.white,
-          text: text,
-          timeAgo: 'Agora',
-          likes: 0,
-        ),
-      );
-    });
+    final parentId = _replyParentId;
     _replyController.clear();
     FocusScope.of(context).unfocus();
+    setState(() { _replyParentId = null; _replyToName = null; });
+
+    if (_topic.id > 0) {
+      try {
+        final comment = await ForumService.instance.postComment(_topic.id, text, parentId: parentId);
+        if (!mounted) return;
+        if (parentId != null) {
+          _silentRefreshComments();
+        } else {
+          setState(() => _comments.insert(0, comment));
+        }
+      } on ApiException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        }
+      }
+    } else if (parentId == null) {
+      setState(() {
+        _comments.insert(
+          0,
+          ForumComment(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            authorName: 'Tu',
+            authorInitials: 'TU',
+            avatarBg: const Color(0xFFEC4899),
+            avatarFg: Colors.white,
+            text: text,
+            timeAgo: 'Agora',
+            likes: 0,
+          ),
+        );
+      });
+    }
+  }
+
+  Future<void> _silentRefreshComments() async {
+    try {
+      final detail = await ForumService.instance.getTopicDetail(_topic.id);
+      if (mounted) setState(() => _comments = detail.comments);
+    } catch (_) {}
+  }
+
+  /// Determina qual comentário de topo deve ser expandido/scrollado para
+  /// corresponder ao [widget.highlightCommentId].
+  void _resolveHighlight() {
+    final targetId = widget.highlightCommentId;
+    if (targetId == null) return;
+    for (final comment in _comments) {
+      if (comment.numericId == targetId) {
+        // É um comentário de topo
+        setState(() {
+          _scrollTargetId = comment.numericId;
+          _activeHighlightId = targetId;
+        });
+        return;
+      }
+      for (final reply in comment.replies) {
+        if (reply.numericId == targetId) {
+          // É uma reply — expande o pai e rola até ele
+          setState(() {
+            _scrollTargetId = comment.numericId;
+            _autoExpandParentId = comment.numericId;
+            _activeHighlightId = targetId;
+          });
+          return;
+        }
+      }
+    }
+  }
+
+  /// Agenda o scroll para depois do primeiro frame (após o build).
+  void _scheduleScrollToHighlight() {
+    if (_scrollTargetId == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final key = _commentKeys[_scrollTargetId!];
+      if (key?.currentContext != null) {
+        Scrollable.ensureVisible(
+          key!.currentContext!,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+          alignment: 0.1,
+        );
+      }
+    });
   }
 }
 
@@ -198,25 +434,27 @@ class _BackToForumHeader extends StatelessWidget {
 
 class _TopicBodyCard extends StatelessWidget {
   final ForumTopic topic;
+  final String? fullBody;
   final int likes;
   final bool liked;
   final int comments;
-  final int savedCount;
   final bool saved;
   final VoidCallback onLike;
   final VoidCallback onSave;
   final VoidCallback onComment;
+  final VoidCallback? onEdit;
 
   const _TopicBodyCard({
     required this.topic,
+    this.fullBody,
     required this.likes,
     required this.liked,
     required this.comments,
-    required this.savedCount,
     required this.saved,
     required this.onLike,
     required this.onSave,
     required this.onComment,
+    this.onEdit,
   });
 
   @override
@@ -274,9 +512,9 @@ class _TopicBodyCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'Pesquisador no ISPTEC',
-                      style: TextStyle(
+                    Text(
+                      topic.authorRole,
+                      style: const TextStyle(
                         color: Color(0xFF94A3B8),
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -288,14 +526,10 @@ class _TopicBodyCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 22),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 14,
-            runSpacing: 8,
+          Row(
             children: [
-              _PublicBadge(
-                isPrivate: topic.visibility == TopicVisibility.privado,
-              ),
+              _PublicBadge(isPrivate: topic.visibility == TopicVisibility.privado),
+              const SizedBox(width: 14),
               Text(
                 topic.timeAgo,
                 style: const TextStyle(
@@ -304,6 +538,15 @@ class _TopicBodyCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const Spacer(),
+              if (onEdit != null)
+                IconButton(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined, size: 20, color: Color(0xFF94A3B8)),
+                  tooltip: 'Editar tópico',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
             ],
           ),
           const SizedBox(height: 34),
@@ -349,10 +592,10 @@ class _TopicBodyCard extends StatelessWidget {
           ],
           const SizedBox(height: 28),
           ForumInteractionBar(
+            locked: !AuthState.instance.isAuthenticated,
             likes: likes,
             liked: liked,
             comments: comments,
-            savedCount: savedCount,
             saved: saved,
             onLike: onLike,
             onComment: onComment,
@@ -364,10 +607,8 @@ class _TopicBodyCard extends StatelessWidget {
   }
 
   String _bodyFor(ForumTopic topic) {
-    if (topic.title.contains('Kwanza')) {
-      return 'A reforma monetária de 1977, que substituiu o Escudo pelo Kwanza, marcou um ponto de viragem crucial na soberania económica de Angola. No entanto, a transição nas zonas rurais revelou desafios profundos de logística, liquidez e confiança pública.\n\nEste tópico visa explorar os testemunhos e registos históricos sobre como a população campesina percebeu a mudança de valor e como o novo sistema monetário influenciou as trocas comerciais directas no interior do país durante a primeira década de independência.';
-    }
-    return '${topic.excerpt}\n\nEste tópico procura reunir perspectivas, dados de pesquisa e exemplos concretos para apoiar uma discussão académica e profissional entre os membros da comunidade.';
+    if (fullBody != null && fullBody!.isNotEmpty) return fullBody!;
+    return topic.excerpt;
   }
 }
 
@@ -375,12 +616,16 @@ class _ReplyComposer extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final VoidCallback onSend;
+  final String? replyToName;
+  final VoidCallback? onCancelReply;
 
   const _ReplyComposer({
     super.key,
     required this.controller,
     required this.focusNode,
     required this.onSend,
+    this.replyToName,
+    this.onCancelReply,
   });
 
   @override
@@ -403,14 +648,48 @@ class _ReplyComposer extends StatelessWidget {
               fontWeight: FontWeight.w900,
             ),
           ),
+          if (replyToName != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF1F2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.reply_rounded, size: 15, color: AppColors.wine),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'A responder a @$replyToName',
+                      style: const TextStyle(
+                        color: AppColors.wine,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: onCancelReply,
+                    child: const Icon(Icons.close_rounded, size: 16, color: AppColors.wine),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 22),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const AppAvatar(
-                initials: 'NM',
+              AppAvatar(
+                initials: AuthState.instance.isAuthenticated
+                    ? AuthState.instance.initials
+                    : '?',
                 size: 44,
-                bg: Color(0xFFEC4899),
+                bg: AuthState.instance.isAuthenticated
+                    ? AppColors.wine
+                    : const Color(0xFFEC4899),
                 fg: Colors.white,
               ),
               const SizedBox(width: 16),
@@ -526,13 +805,19 @@ class _RepliesHeader extends StatelessWidget {
 
 class _CommentCard extends StatefulWidget {
   final ForumComment comment;
-  final VoidCallback onReply;
+  final void Function(ForumComment) onReply;
   final bool nested;
+  final bool isHighlighted;
+  final int? highlightedReplyId;
+  final bool autoExpandReplies;
 
   const _CommentCard({
     required this.comment,
     required this.onReply,
     this.nested = false,
+    this.isHighlighted = false,
+    this.highlightedReplyId,
+    this.autoExpandReplies = false,
   });
 
   @override
@@ -542,19 +827,36 @@ class _CommentCard extends StatefulWidget {
 class _CommentCardState extends State<_CommentCard> {
   late int _likes;
   late bool _liked;
-  bool _repliesExpanded = false;
+  late bool _repliesExpanded;
+  bool _activeHighlight = false;
 
   @override
   void initState() {
     super.initState();
     _likes = widget.comment.likes;
     _liked = widget.comment.isLiked;
+    _repliesExpanded = widget.autoExpandReplies;
+    if (widget.isHighlighted) _startHighlight();
   }
 
-  void _toggleLike() => setState(() {
-        _liked = !_liked;
-        _likes += _liked ? 1 : -1;
-      });
+  void _startHighlight() {
+    setState(() => _activeHighlight = true);
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _activeHighlight = false);
+    });
+  }
+
+  Future<void> _toggleLike() async {
+    if (!AuthState.requireAuth(context)) return;
+    setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
+    if (widget.comment.numericId <= 0) return;
+    try {
+      final r = await ForumService.instance.likeComment(widget.comment.numericId);
+      if (mounted) setState(() { _liked = r.liked; _likes = r.likesCount; });
+    } on ApiException {
+      if (mounted) setState(() { _liked = !_liked; _likes += _liked ? -1 : 1; });
+    }
+  }
 
   void _showOptions(BuildContext context) {
     showModalBottomSheet<void>(
@@ -611,7 +913,23 @@ class _CommentCardState extends State<_CommentCard> {
   Widget build(BuildContext context) {
     const indent = 46.0; // avatar (36) + gap (10)
 
-    return Column(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 800),
+      curve: Curves.easeOut,
+      padding: _activeHighlight ? const EdgeInsets.all(10) : EdgeInsets.zero,
+      decoration: BoxDecoration(
+        color: _activeHighlight
+            ? const Color(0xFF7B001C).withValues(alpha: 0.08)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _activeHighlight
+              ? const Color(0xFF7B001C).withValues(alpha: 0.25)
+              : Colors.transparent,
+          width: 1.2,
+        ),
+      ),
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Linha de cabeçalho: avatar + username • tempo
@@ -689,7 +1007,7 @@ class _CommentCardState extends State<_CommentCard> {
                   ),
                   const SizedBox(width: 16),
                   GestureDetector(
-                    onTap: widget.onReply,
+                    onTap: () => widget.onReply(widget.comment),
                     child: const Text(
                       'Responder',
                       style: TextStyle(
@@ -765,6 +1083,7 @@ class _CommentCardState extends State<_CommentCard> {
                                         comment: e.value,
                                         onReply: widget.onReply,
                                         nested: true,
+                                        isHighlighted: e.value.numericId == widget.highlightedReplyId,
                                       ),
                                     ))
                                 .toList(),
@@ -779,7 +1098,8 @@ class _CommentCardState extends State<_CommentCard> {
           ),
         ),
       ],
-    );
+      ), // Column
+    ); // AnimatedContainer
   }
 }
 

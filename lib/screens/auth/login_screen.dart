@@ -14,7 +14,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController(text: 'carlos@isptec.co.ao');
+  final _email = TextEditingController();
   final _password = TextEditingController();
   bool _loading = false;
 
@@ -49,7 +49,8 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(24, 46, 24, 24),
           child: Form(
             key: _formKey,
@@ -83,7 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const DividerWithText(text: 'ou'),
                 const SizedBox(height: 18),
                 GoogleButton(onPressed: () {}),
-                const Spacer(),
+                const SizedBox(height: 40),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [

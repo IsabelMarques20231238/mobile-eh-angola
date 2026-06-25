@@ -16,8 +16,8 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _code = TextEditingController();
-  final _pass = TextEditingController(text: '123456');
-  final _confirm = TextEditingController(text: '123456');
+  final _pass = TextEditingController();
+  final _confirm = TextEditingController();
   bool _loading = false;
 
   @override

@@ -1,5 +1,6 @@
 import 'api_client.dart';
 import 'api_models.dart';
+import 'auth_state.dart';
 
 class AuthService {
   AuthService(this._api);
@@ -16,12 +17,15 @@ class AuthService {
     required String email,
     required String password,
     required String passwordConfirmation,
+    required String profession,
   }) async {
     final payload = await _api.post('/register', body: {
       'name': name,
       'email': email,
       'password': password,
       'password_confirmation': passwordConfirmation,
+      'profession': profession,
+      'accepted_terms': true,
     });
     return _handleAuthPayload(payload);
   }
@@ -54,6 +58,7 @@ class AuthService {
       await _api.post('/logout', authenticated: true);
     } finally {
       await _api.clearToken();
+      AuthState.instance.clearUser();
     }
   }
 
@@ -62,11 +67,13 @@ class AuthService {
       throw const ApiException('Resposta invalida da API.');
     }
     final token = payload['token']?.toString();
-    final user = payload['user'];
-    if (token == null || token.isEmpty || user is! Map<String, dynamic>) {
+    final userJson = payload['user'];
+    if (token == null || token.isEmpty || userJson is! Map<String, dynamic>) {
       throw const ApiException('Resposta de autenticacao incompleta.');
     }
     await _api.saveToken(token);
-    return AuthUser.fromJson(user);
+    final user = AuthUser.fromJson(userJson);
+    AuthState.instance.setUser(user);
+    return user;
   }
 }

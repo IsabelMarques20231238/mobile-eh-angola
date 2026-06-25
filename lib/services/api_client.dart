@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +27,8 @@ class ApiClient {
   );
 
   static const _tokenKey = 'eh_angola_auth_token';
+
+  static void Function()? onUnauthorized;
 
   String? _token;
 
@@ -62,6 +65,50 @@ class ApiClient {
 
   Future<dynamic> delete(String path, {bool authenticated = false}) {
     return _send('DELETE', path, authenticated: authenticated);
+  }
+
+  Future<String> uploadImage(String filePath) async {
+    final currentToken = await token;
+    if (currentToken == null || currentToken.isEmpty) {
+      throw const ApiException('Inicie sessao para continuar.', statusCode: 401);
+    }
+    final uri = Uri.parse('$baseUrl/upload/image');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $currentToken'
+      ..headers['Accept'] = 'application/json'
+      ..files.add(await http.MultipartFile.fromPath('file', filePath));
+
+    http.StreamedResponse streamed;
+    try {
+      streamed = await request.send().timeout(const Duration(seconds: 60));
+    } on SocketException {
+      throw const ApiException('Nao foi possivel contactar a API.');
+    } on TimeoutException {
+      throw const ApiException('Nao foi possivel contactar a API.');
+    }
+
+    final body = await streamed.stream.bytesToString();
+    dynamic decoded;
+    try {
+      decoded = body.isEmpty ? null : jsonDecode(body);
+    } on FormatException {
+      throw const ApiException('A API devolveu uma resposta invalida.');
+    }
+
+    if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
+      final url = decoded is Map ? decoded['url']?.toString() : null;
+      if (url == null || url.isEmpty) throw const ApiException('URL da imagem nao devolvida.');
+      return url;
+    }
+
+    if (streamed.statusCode == 401) {
+      await clearToken();
+      onUnauthorized?.call();
+    }
+    final message = decoded is Map
+        ? decoded['message']?.toString() ?? 'Erro no upload da imagem.'
+        : 'Erro no upload da imagem.';
+    throw ApiException(message, statusCode: streamed.statusCode);
   }
 
   Future<dynamic> _send(
@@ -121,7 +168,10 @@ class ApiClient {
     }
     if (response.statusCode >= 200 && response.statusCode < 300) return decoded;
 
-    if (response.statusCode == 401) await clearToken();
+    if (response.statusCode == 401) {
+      await clearToken();
+      onUnauthorized?.call();
+    }
 
     String message = 'Pedido invalido. Tente novamente.';
     Map<String, dynamic>? errors;

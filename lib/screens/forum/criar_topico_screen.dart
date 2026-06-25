@@ -1,9 +1,27 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../models/forum_models.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_state.dart';
+import '../../services/forum_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/image_preview_field.dart';
 import '../../widgets/shared_widgets.dart';
 
 class CriarTopicoScreen extends StatefulWidget {
-  const CriarTopicoScreen({super.key});
+  /// When provided, the screen opens in edit mode.
+  final ForumTopic? editTopic;
+  final String? editBody;
+  final List<String> editTags;
+
+  const CriarTopicoScreen({
+    super.key,
+    this.editTopic,
+    this.editBody,
+    this.editTags = const [],
+  });
 
   @override
   State<CriarTopicoScreen> createState() => _CriarTopicoScreenState();
@@ -12,47 +30,118 @@ class CriarTopicoScreen extends StatefulWidget {
 class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
+  final _imageUrlController = TextEditingController();
   final _keywordController = TextEditingController();
 
   bool _isPrivate = false;
   bool _readOnly = false;
-  String _selectedCategory = 'Economia';
-  final List<String> _hashTags = [];
+  ForumCategory? _selectedCategory;
+  List<String> _hashTags = [];
+  // Maps normalized tag label (e.g. '#petróleo') → tag ID for tags picked from API suggestions
+  final Map<String, int> _tagIdMap = {};
+  XFile? _selectedImage;
+  String? _validatedImageUrl;
+  bool _isPublishing = false;
+  String? _titleError;
+  String? _bodyError;
 
-  final _categories = const [
-    'Economia',
-    'História',
-    'Política',
-    'Petróleo',
-    'Cidadania',
-    'Sugestões',
+  bool get _isEditing => widget.editTopic != null;
+
+  bool get _canSetPrivate {
+    final roles = AuthState.instance.user?.roles ?? [];
+    return roles.any((r) => r == 'AUTHOR' || r == 'ADMIN' || r == 'SUPER_ADMIN');
+  }
+
+  List<ForumCategory> _categories = const [];
+  List<ForumTag> _tagSuggestions = [];
+  bool _tagsLoading = false;
+  Timer? _tagDebounce;
+
+  static const _fallbackCategories = [
+    ForumCategory(id: 0, name: 'Economia'),
+    ForumCategory(id: 0, name: 'História'),
+    ForumCategory(id: 0, name: 'Política'),
+    ForumCategory(id: 0, name: 'Petróleo'),
+    ForumCategory(id: 0, name: 'Cidadania'),
   ];
 
-  final _hashTagSuggestions = const [
-    '#economia',
-    '#historia',
-    '#politica',
-    '#petroleo',
-    '#cidadania',
-    '#kwanza',
-    '#mercado',
-    '#independencia',
-  ];
+  List<ForumTag> get _visibleSuggestions => _tagSuggestions
+      .where((t) => !_hashTags.contains('#${t.name.toLowerCase()}'))
+      .take(10)
+      .toList();
 
-  List<String> get _visibleHashTagSuggestions {
-    final query = _keywordController.text.trim().toLowerCase();
-    return _hashTagSuggestions.where((tag) {
-      final notAdded = !_hashTags.contains(tag);
-      if (query.isEmpty || query == '#') return notAdded;
-      final normalized = query.startsWith('#') ? query : '#$query';
-      return notAdded && tag.contains(normalized);
-    }).toList();
+  Future<void> _fetchTags(String query) async {
+    setState(() => _tagsLoading = true);
+    try {
+      final results = await ForumService.instance.getTags(query);
+      if (mounted) setState(() => _tagSuggestions = results);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _tagsLoading = false);
+    }
+  }
+
+  void _onTagQueryChanged(String value) {
+    _tagDebounce?.cancel();
+    final q = value.trim().replaceAll('#', '');
+    if (q.isEmpty) {
+      setState(() => _tagSuggestions = []);
+      return;
+    }
+    _tagDebounce = Timer(const Duration(milliseconds: 350), () => _fetchTags(q));
+    setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final t = widget.editTopic;
+    if (t != null) {
+      _titleController.text = t.title;
+      _descController.text = widget.editBody ?? t.excerpt;
+      _imageUrlController.text = t.imageUrl ?? '';
+      _isPrivate = t.visibility == TopicVisibility.privado;
+      _readOnly = t.isReadOnly;
+      _hashTags = List<String>.from(
+        widget.editTags.map((tag) => tag.startsWith('#') ? tag : '#$tag'),
+      );
+    }
+    _titleController.addListener(() {
+      if (_titleError != null && _titleController.text.trim().isNotEmpty) {
+        setState(() => _titleError = null);
+      }
+    });
+    _descController.addListener(() {
+      if (_bodyError != null && _descController.text.trim().isNotEmpty) {
+        setState(() => _bodyError = null);
+      }
+    });
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    final cats = await ForumService.instance.getCategories();
+    if (!mounted) return;
+    setState(() {
+      _categories = cats.isNotEmpty ? cats : _fallbackCategories;
+      final editId = widget.editTopic?.categoryId ?? 0;
+      if (editId > 0) {
+        _selectedCategory = _categories.firstWhere(
+          (c) => c.id == editId,
+          orElse: () => _categories.first,
+        );
+      } else {
+        _selectedCategory = _categories.first;
+      }
+    });
   }
 
   @override
   void dispose() {
+    _tagDebounce?.cancel();
     _titleController.dispose();
     _descController.dispose();
+    _imageUrlController.dispose();
     _keywordController.dispose();
     super.dispose();
   }
@@ -60,237 +149,341 @@ class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.chevron_left, size: 22),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text('Criar Tópico'),
-        centerTitle: true,
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, color: AppColors.borderLight),
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 22, 16, 28),
-        children: [
-          const _FieldLabel('Título'),
-          TextField(
-            controller: _titleController,
-            maxLength: 120,
-            decoration: const InputDecoration(
-              hintText: 'O que queres discutir?',
-              hintStyle: TextStyle(
-                fontSize: 18,
-                color: AppColors.muted,
-                fontWeight: FontWeight.w600,
-              ),
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              filled: false,
-              contentPadding: EdgeInsets.zero,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _Header(
+              onBack: () => Navigator.pop(context),
+              onCancel: () => Navigator.pop(context),
+              onPublish: _isPublishing ? null : _createTopic,
+              isPublishing: _isPublishing,
+              isEditing: _isEditing,
             ),
-            style: const TextStyle(
-              fontSize: 18,
-              color: AppColors.textMain,
-              fontWeight: FontWeight.w600,
-            ),
-            buildCounter:
-                (_, {required currentLength, required isFocused, maxLength}) =>
-                    Text(
-                      '$currentLength/$maxLength',
-                      style: const TextStyle(
-                        fontSize: 9,
-                        color: AppColors.muted,
-                      ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 22, 16, 32),
+                children: [
+                  // ── Título ──────────────────────────────────────
+                  _label('Título'),
+                  const SizedBox(height: 8),
+                  _TitleField(
+                    controller: _titleController,
+                    errorText: _titleError,
+                    onChanged: () => setState(() {}),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Categoria ───────────────────────────────────
+                  _label('Categoria'),
+                  const SizedBox(height: 8),
+                  _CategoryDropdown(
+                    categories: _categories,
+                    selected: _selectedCategory,
+                    onChanged: (v) => setState(() => _selectedCategory = v),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Visibilidade ─────────────────────────────────
+                  _label('Visibilidade'),
+                  const SizedBox(height: 8),
+                  _VisCard(
+                    icon: Icons.language_rounded,
+                    title: 'Público',
+                    subtitle: 'Todos podem ver (Publicação Pública)',
+                    selected: !_isPrivate,
+                    onTap: () => setState(() => _isPrivate = false),
+                  ),
+                  if (_canSetPrivate) ...[
+                    const SizedBox(height: 8),
+                    _VisCard(
+                      icon: Icons.lock_outline_rounded,
+                      title: 'Privado',
+                      subtitle: 'Só por convite + aprovação',
+                      selected: _isPrivate,
+                      onTap: () => setState(() => _isPrivate = true),
                     ),
-          ),
-          const Divider(height: 26, color: AppColors.borderLight),
-          const Text(
-            'Categoria',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textMain,
-            ),
-          ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            initialValue: _selectedCategory,
-            icon: const Icon(
-              Icons.keyboard_arrow_down,
-              size: 18,
-              color: AppColors.textSecondary,
-            ),
-            items: _categories
-                .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
-                .toList(),
-            onChanged: (value) =>
-                setState(() => _selectedCategory = value ?? _selectedCategory),
-            style: const TextStyle(fontSize: 13, color: AppColors.textMain),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Visibilidade',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textMain,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _VisOption(
-                  icon: Icons.public,
-                  title: 'Público',
-                  subtitle: 'Qualquer um pode ver e responder',
-                  selected: !_isPrivate,
-                  onTap: () => setState(() => _isPrivate = false),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _VisOption(
-                  icon: Icons.lock_outline,
-                  title: 'Privado',
-                  subtitle: 'Só por convite + aprovação',
-                  selected: _isPrivate,
-                  onTap: () => setState(() => _isPrivate = true),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Apenas leitura',
-                      style: TextStyle(
+                  ],
+                  const SizedBox(height: 20),
+
+                  // ── Apenas leitura ───────────────────────────────
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Apenas leitura',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textMain,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Impedir novos comentários nesta discussão.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AppToggle(
+                        value: _readOnly,
+                        onChanged: (v) => setState(() => _readOnly = v),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Descrição ────────────────────────────────────
+                  Text.rich(
+                    TextSpan(
+                      text: 'Descrição ',
+                      children: [
+                        TextSpan(
+                          text: '* (obrigatório)',
+                          style: TextStyle(
+                            color: AppColors.wine,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                      style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: AppColors.textMain,
                       ),
                     ),
-                    SizedBox(height: 3),
-                    Text(
-                      'Membros só podem visualizar, sem responder',
-                      style: TextStyle(fontSize: 10, color: AppColors.muted),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: _bodyError != null
+                            ? AppColors.error
+                            : AppColors.borderLight,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 4,
+                    ),
+                    child: TextField(
+                      controller: _descController,
+                      minLines: 5,
+                      maxLines: 8,
+                      decoration: const InputDecoration(
+                        hintText: 'Adiciona contexto ou detalhes académicos...',
+                        hintStyle: TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textMain,
+                      ),
+                    ),
+                  ),
+                  if (_bodyError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 5, left: 4),
+                      child: Text(
+                        _bodyError!,
+                        style: const TextStyle(
+                          color: AppColors.error,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 20),
+
+                  // ── Imagem do Tópico ─────────────────────────────
+                  Text.rich(
+                    TextSpan(
+                      text: 'Imagem do Tópico ',
+                      children: [
+                        TextSpan(
+                          text: '(opcional)',
+                          style: TextStyle(
+                            color: AppColors.muted,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textMain,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_selectedImage != null)
+                    _SelectedImageTile(
+                      name: _selectedImage!.name,
+                      onRemove: () => setState(() => _selectedImage = null),
+                    )
+                  else if (_validatedImageUrl != null)
+                    _UrlImagePreview(
+                      url: _validatedImageUrl!,
+                      onRemove: () => setState(() {
+                        _validatedImageUrl = null;
+                        _imageUrlController.clear();
+                      }),
+                    )
+                  else
+                    _ImageUploadBox(onTap: () => _pickImage(context)),
+                  const SizedBox(height: 10),
+                  ImagePreviewField(
+                    controller: _imageUrlController,
+                    showInlinePreview: false,
+                    onValidUrl: (url) => setState(() => _validatedImageUrl = url),
+                    onInvalidUrl: () => setState(() => _validatedImageUrl = null),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Hashtags ─────────────────────────────────────
+                  _label('Hashtags'),
+                  const SizedBox(height: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.borderLight),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: TextField(
+                      controller: _keywordController,
+                      textInputAction: TextInputAction.done,
+                      onChanged: _onTagQueryChanged,
+                      onSubmitted: (_) => _addHashTag(),
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(
+                          Icons.label_outline_rounded,
+                          color: AppColors.muted,
+                          size: 18,
+                        ),
+                        hintText: 'Adiciona Hashtags separadas por vírgula',
+                        hintStyle: TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 13,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textMain,
+                      ),
+                    ),
+                  ),
+                  if (_hashTags.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: _hashTags
+                          .map(
+                            (tag) => _HashTagChip(
+                              label: tag,
+                              onRemove: () => setState(() {
+                                _hashTags.remove(tag);
+                                _tagIdMap.remove(tag);
+                              }),
+                            ),
+                          )
+                          .toList(),
                     ),
                   ],
-                ),
-              ),
-              AppToggle(
-                value: _readOnly,
-                onChanged: (value) => setState(() => _readOnly = value),
-              ),
-            ],
-          ),
-          const Divider(height: 26, color: AppColors.borderLight),
-          const _FieldLabel('Descrição (opcional)'),
-          TextField(
-            controller: _descController,
-            minLines: 5,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              hintText: 'Adiciona contexto ou detalhes...',
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              filled: false,
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: const [
-              _ToolbarIcon(Icons.format_bold),
-              _ToolbarIcon(Icons.format_italic),
-              _ToolbarIcon(Icons.format_list_bulleted),
-              _ToolbarIcon(Icons.link),
-            ],
-          ),
-          const Divider(height: 26, color: AppColors.borderLight),
-          const _FieldLabel('Hash-tags'),
-          TextField(
-            controller: _keywordController,
-            textInputAction: TextInputAction.done,
-            onChanged: (_) => setState(() {}),
-            onSubmitted: (_) => _addHashTag(),
-            decoration: const InputDecoration(
-              hintText: 'Adiciona hash-tags separadas por Enter',
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              filled: false,
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          if (_hashTags.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _hashTags
-                  .map(
-                    (tag) => _HashTagChip(
-                      label: tag,
-                      onRemove: () => setState(() => _hashTags.remove(tag)),
+                  if (_tagsLoading)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 10),
+                      child: LinearProgressIndicator(color: AppColors.wine, minHeight: 2),
+                    )
+                  else if (_visibleSuggestions.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _visibleSuggestions
+                          .map(
+                            (tag) => ActionChip(
+                              label: Text('#${tag.name}'),
+                              onPressed: () => _addHashTag('#${tag.name}', tag),
+                              labelStyle: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.wine,
+                              ),
+                              side: const BorderSide(color: AppColors.borderLight),
+                              backgroundColor: AppColors.wineBg,
+                            ),
+                          )
+                          .toList(),
                     ),
-                  )
-                  .toList(),
-            ),
-          ],
-          if (_visibleHashTagSuggestions.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _visibleHashTagSuggestions
-                  .map(
-                    (tag) => ActionChip(
-                      label: Text(tag),
-                      onPressed: () => _addHashTag(tag),
-                      labelStyle: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.wine,
+                  ],
+                  const SizedBox(height: 28),
+
+                  // ── Footer de segurança ──────────────────────────
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.lock_outline_rounded,
+                        size: 14,
+                        color: AppColors.muted,
                       ),
-                      side: const BorderSide(color: AppColors.borderLight),
-                      backgroundColor: AppColors.wineBg,
-                    ),
-                  )
-                  .toList(),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'A tua informação está segura. Apenas o moderador poderá ver o teu pedido.',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.muted,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: SizedBox(
-          height: 44,
-          child: ElevatedButton(
-            onPressed: _createTopic,
-            child: const Text('Criar tópico'),
-          ),
         ),
       ),
     );
   }
 
-  void _addHashTag([String? suggestion]) {
+  Widget _label(String text) => Text(
+    text,
+    style: const TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+      color: AppColors.textMain,
+    ),
+  );
+
+  void _addHashTag([String? suggestion, ForumTag? tagObj]) {
     final tag = _normalizeHashTag(suggestion ?? _keywordController.text);
     if (tag == null || _hashTags.contains(tag)) return;
     setState(() {
       _hashTags.add(tag);
+      if (tagObj != null) _tagIdMap[tag] = tagObj.id;
       _keywordController.clear();
     });
   }
@@ -301,20 +494,790 @@ class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
     return clean.startsWith('#') ? clean : '#$clean';
   }
 
-  void _createTopic() {
-    if (_isPrivate) {
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const _PrivateForumCreatedDialog(),
-      );
+  void _pickImage(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.borderLight,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined, color: AppColors.wine),
+              title: const Text('Câmara'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final file = await ImagePicker().pickImage(
+                  source: ImageSource.camera,
+                  imageQuality: 85,
+                );
+                if (file != null && mounted) {
+                  setState(() => _selectedImage = file);
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: AppColors.wine),
+              title: const Text('Galeria'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final file = await ImagePicker().pickImage(
+                  source: ImageSource.gallery,
+                  imageQuality: 85,
+                );
+                if (file != null && mounted) {
+                  setState(() => _selectedImage = file);
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Diálogo quando o utilizador escreveu uma URL mas ela não passou a validação.
+  void _showNoImageWarningDialog() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Ícone centrado com fundo rosa
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEAEA),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.shield_outlined,
+                  color: AppColors.wine,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Título
+              const Text(
+                'Publicar sem Imagem?',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              // Corpo
+              const Text(
+                'O URL da imagem de capa que introduziu é inválido. Se continuar, o seu tópico será publicado sem qualquer imagem de capa associada.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Tem a certeza de que deseja publicar ainda assim?',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              // Botões lado a lado
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: Color(0xFFCCCCCC)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.wine,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(50),
+                        ),
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        setState(() {
+                          _imageUrlController.clear();
+                          _validatedImageUrl = null;
+                        });
+                        _publishTopic();
+                      },
+                      child: const Text(
+                        'Sim, Publicar',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createTopic() async {
+    final title = _titleController.text.trim();
+    final body = _descController.text.trim();
+
+    // Validação inline — mostra erros directamente nos campos
+    final titleErr = title.isEmpty ? 'O título é obrigatório.' : null;
+    final bodyErr  = body.isEmpty  ? 'A descrição é obrigatória.' : null;
+    if (titleErr != null || bodyErr != null) {
+      setState(() { _titleError = titleErr; _bodyError = bodyErr; });
       return;
     }
 
-    showAppToast(context, 'Tópico criado!');
-    Navigator.pop(context);
+    if (_selectedCategory == null || _selectedCategory!.id <= 0) {
+      showAppToast(context, 'Seleciona uma categoria válida.');
+      return;
+    }
+
+    // URL escrita mas não validada com sucesso → avisa antes de publicar sem imagem
+    final urlTyped = _imageUrlController.text.trim().isNotEmpty;
+    if (urlTyped && _validatedImageUrl == null && _selectedImage == null) {
+      _showNoImageWarningDialog();
+      return;
+    }
+
+    _publishTopic();
+  }
+
+  Future<void> _publishTopic() async {
+    final title = _titleController.text.trim();
+    final body = _descController.text.trim();
+
+    setState(() => _isPublishing = true);
+    try {
+      // Ficheiro local tem prioridade; caso contrário usa a URL já validada.
+      String? coverImageUrl = _validatedImageUrl;
+      if (_selectedImage != null) {
+        coverImageUrl = await ApiClient.instance.uploadImage(_selectedImage!.path);
+      }
+
+      // Split tags: existing (from API suggestions, have ID) vs new (typed manually)
+      final selectedTags = _hashTags
+          .where((t) => _tagIdMap.containsKey(t))
+          .map((t) => ForumTag(id: _tagIdMap[t]!, name: t.replaceFirst('#', '')))
+          .toList();
+      final newTagNames = _hashTags
+          .where((t) => !_tagIdMap.containsKey(t))
+          .toList();
+
+      if (_isEditing) {
+        await ForumService.instance.updateTopic(
+          id: widget.editTopic!.id,
+          title: title,
+          body: body,
+          categoryId: _selectedCategory!.id,
+          isPrivate: _isPrivate,
+          isReadOnly: _readOnly,
+          coverImageUrl: coverImageUrl,
+          selectedTags: selectedTags,
+          newTagNames: newTagNames,
+        );
+        if (!mounted) return;
+        showAppToast(context, 'Tópico actualizado!');
+        Navigator.pop(context, true);
+      } else {
+        await ForumService.instance.createTopic(
+          title: title,
+          body: body,
+          categoryId: _selectedCategory!.id,
+          isPrivate: _isPrivate,
+          isReadOnly: _readOnly,
+          coverImageUrl: coverImageUrl,
+          selectedTags: selectedTags,
+          newTagNames: newTagNames,
+        );
+        if (!mounted) return;
+        if (_isPrivate) {
+          showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const _PrivateForumCreatedDialog(),
+          );
+        } else {
+          showAppToast(context, 'Tópico criado!');
+          Navigator.pop(context);
+        }
+      }
+    } on ApiException catch (e) {
+      if (mounted) showAppToast(context, e.message);
+    } finally {
+      if (mounted) setState(() => _isPublishing = false);
+    }
   }
 }
+
+// ── Header ─────────────────────────────────────────────────────────────────
+
+class _Header extends StatelessWidget {
+  final VoidCallback onBack;
+  final VoidCallback onCancel;
+  final VoidCallback? onPublish;
+  final bool isPublishing;
+  final bool isEditing;
+
+  const _Header({
+    required this.onBack,
+    required this.onCancel,
+    required this.onPublish,
+    this.isPublishing = false,
+    this.isEditing = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 60,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: AppColors.borderLight)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: AppColors.wine, size: 20),
+            onPressed: onBack,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isEditing ? 'Editar\nTópico' : 'Criar\nTópico',
+            style: const TextStyle(
+              color: AppColors.wine,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              height: 1.15,
+            ),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: onCancel,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.textSecondary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            height: 36,
+            child: ElevatedButton(
+              onPressed: onPublish,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.wine,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                elevation: 0,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: isPublishing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Publicar',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Título field ────────────────────────────────────────────────────────────
+
+class _TitleField extends StatelessWidget {
+  final TextEditingController controller;
+  final VoidCallback onChanged;
+  final String? errorText;
+
+  const _TitleField({
+    required this.controller,
+    required this.onChanged,
+    this.errorText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasError = errorText != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: hasError ? AppColors.error : AppColors.borderLight,
+            ),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  maxLength: 120,
+                  onChanged: (_) => onChanged(),
+                  decoration: const InputDecoration(
+                    hintText: 'O que queres discutir?',
+                    hintStyle: TextStyle(
+                      fontSize: 15,
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    counterText: '',
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: AppColors.textMain,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                '${controller.text.length}/120',
+                style: const TextStyle(fontSize: 11, color: AppColors.muted),
+              ),
+            ],
+          ),
+        ),
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(top: 5, left: 4),
+            child: Text(
+              errorText!,
+              style: const TextStyle(
+                color: AppColors.error,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ── Categoria dropdown ──────────────────────────────────────────────────────
+
+class _CategoryDropdown extends StatelessWidget {
+  final List<ForumCategory> categories;
+  final ForumCategory? selected;
+  final ValueChanged<ForumCategory> onChanged;
+
+  const _CategoryDropdown({
+    required this.categories,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = categories.isEmpty
+        ? [DropdownMenuItem<ForumCategory>(
+            value: selected,
+            child: const Text('A carregar categorias…',
+                style: TextStyle(fontSize: 14, color: AppColors.muted)),
+          )]
+        : categories.map((cat) => DropdownMenuItem<ForumCategory>(
+            value: cat,
+            child: Row(children: [
+              const Icon(Icons.grid_view_rounded, size: 16, color: AppColors.textSecondary),
+              const SizedBox(width: 10),
+              Text(cat.name, style: const TextStyle(fontSize: 14, color: AppColors.textMain, fontWeight: FontWeight.w500)),
+            ]),
+          )).toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.borderLight),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<ForumCategory>(
+          value: selected,
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary, size: 20),
+          items: items,
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// ── Visibilidade card ───────────────────────────────────────────────────────
+
+class _VisCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _VisCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.wineBg : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? AppColors.wine : AppColors.borderLight,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.winePill,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: AppColors.wine, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: selected ? AppColors.wine : AppColors.textMain,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _RadioDot(selected: selected),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RadioDot extends StatelessWidget {
+  final bool selected;
+  const _RadioDot({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: selected ? AppColors.wine : AppColors.muted,
+          width: 2,
+        ),
+      ),
+      child: selected
+          ? Center(
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.wine,
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+// ── Selected image tile ─────────────────────────────────────────────────────
+
+class _SelectedImageTile extends StatelessWidget {
+  final String name;
+  final VoidCallback onRemove;
+
+  const _SelectedImageTile({required this.name, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.wineBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.wine.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.image_outlined, color: AppColors.wine, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.wine,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          GestureDetector(
+            onTap: onRemove,
+            child: const Icon(Icons.close, size: 18, color: AppColors.muted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── URL image preview (replaces upload box when URL is valid) ──────────────
+
+class _UrlImagePreview extends StatelessWidget {
+  final String url;
+  final VoidCallback onRemove;
+
+  const _UrlImagePreview({required this.url, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            width: double.infinity,
+            height: 180,
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                color: AppColors.wineBg,
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.broken_image_outlined,
+                  color: AppColors.muted,
+                  size: 36,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: GestureDetector(
+            onTap: onRemove,
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: const BoxDecoration(
+                color: Color(0xCC000000),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, color: Colors.white, size: 16),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Image upload box (dashed border) ───────────────────────────────────────
+
+class _ImageUploadBox extends StatelessWidget {
+  final VoidCallback onTap;
+  const _ImageUploadBox({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: CustomPaint(
+        painter: _DashedBorderPainter(),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+          child: Column(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.borderLight),
+                ),
+                child: const Icon(
+                  Icons.upload_rounded,
+                  color: AppColors.textSecondary,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Adicionar imagem',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textMain,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'PNG, JPG, GIF até 5MB',
+                style: TextStyle(fontSize: 11, color: AppColors.muted),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashedBorderPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    const color = Color(0xFFCBD5E1);
+    const dashWidth = 6.0;
+    const dashSpace = 4.0;
+    const radius = 12.0;
+
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(0, 0, size.width, size.height),
+          const Radius.circular(radius),
+        ),
+      );
+
+    double distance = 0;
+    bool drawing = true;
+    for (final metric in path.computeMetrics()) {
+      while (distance < metric.length) {
+        final segLen = drawing ? dashWidth : dashSpace;
+        if (drawing) {
+          canvas.drawPath(
+            metric.extractPath(distance, distance + segLen),
+            paint,
+          );
+        }
+        distance += segLen;
+        drawing = !drawing;
+      }
+      distance = 0;
+      drawing = true;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ── HashTag chip ────────────────────────────────────────────────────────────
 
 class _HashTagChip extends StatelessWidget {
   final String label;
@@ -354,98 +1317,7 @@ class _HashTagChip extends StatelessWidget {
   }
 }
 
-class _FieldLabel extends StatelessWidget {
-  final String label;
-  const _FieldLabel(this.label);
-
-  @override
-  Widget build(BuildContext context) => Text(
-    label,
-    style: const TextStyle(
-      fontSize: 10,
-      fontWeight: FontWeight.w700,
-      color: AppColors.muted,
-    ),
-  );
-}
-
-class _ToolbarIcon extends StatelessWidget {
-  final IconData icon;
-  const _ToolbarIcon(this.icon);
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 12),
-    child: Icon(icon, size: 14, color: AppColors.muted),
-  );
-}
-
-class _VisOption extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _VisOption({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(4),
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 64),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.wineBg : Colors.white,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: selected ? AppColors.wine : AppColors.borderLight,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 14,
-                  color: selected ? AppColors.wine : AppColors.muted,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: selected ? AppColors.wine : AppColors.textMain,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                fontSize: 9,
-                color: AppColors.muted,
-                height: 1.25,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
+// ── Diálogo tópico privado ──────────────────────────────────────────────────
 
 class _PrivateForumCreatedDialog extends StatefulWidget {
   const _PrivateForumCreatedDialog();
@@ -566,9 +1438,7 @@ class _PrivateForumCreatedDialogState
                     SizedBox(
                       height: 22,
                       child: TextButton(
-                        onPressed: () {
-                          showAppToast(context, 'Código copiado!');
-                        },
+                        onPressed: () => showAppToast(context, 'Código copiado!'),
                         style: TextButton.styleFrom(
                           backgroundColor: AppColors.winePill,
                           foregroundColor: AppColors.wine,
@@ -649,14 +1519,14 @@ class _PrivateForumCreatedDialogState
                 runSpacing: 6,
                 children: _members
                     .map(
-                      (member) => _InviteChip(
-                        label: member,
-                        onRemove: () => setState(() => _members.remove(member)),
+                      (m) => _InviteChip(
+                        label: m,
+                        onRemove: () => setState(() => _members.remove(m)),
                       ),
                     )
                     .toList(),
               ),
-              const SizedBox(height: 37),
+              const SizedBox(height: 20),
               SizedBox(
                 height: 26,
                 width: double.infinity,

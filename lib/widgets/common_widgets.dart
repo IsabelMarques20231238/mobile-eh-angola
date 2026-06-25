@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../services/auth_state.dart';
+import '../services/notification_state.dart';
 import '../theme/app_theme.dart';
 
 class AppLogo extends StatelessWidget {
@@ -106,8 +109,21 @@ class EhAngolaHeader extends StatelessWidget {
                   onTap: onSearchTap,
                   active: showSearch,
                 ),
-                const SizedBox(width: 10),
-                _HeaderNotificationButton(onTap: onNotificationsTap),
+                ListenableBuilder(
+                  listenable: AuthState.instance,
+                  builder: (context, _) {
+                    if (!AuthState.instance.isAuthenticated) {
+                      return const SizedBox.shrink();
+                    }
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 10),
+                        _HeaderNotificationButton(onTap: onNotificationsTap),
+                      ],
+                    );
+                  },
+                ),
               ],
             ),
             if (showSearch && searchController != null) ...[
@@ -247,53 +263,60 @@ class _HeaderNotificationButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(15),
-      child: SizedBox(
-        width: 50,
-        height: 50,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: const Color(0xFFE8EDF3)),
-              ),
-              child: const Icon(
-                Icons.notifications_none_rounded,
-                color: AppColors.wine,
-                size: 23,
-              ),
-            ),
-            Positioned(
-              top: 6,
-              right: 7,
-              child: Container(
-                width: 21,
-                height: 21,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFE60046),
-                  shape: BoxShape.circle,
-                ),
-                child: const Text(
-                  '3',
-                  style: TextStyle(
+    return ListenableBuilder(
+      listenable: NotificationState.instance,
+      builder: (context, _) {
+        final count = NotificationState.instance.unreadCount;
+        return InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(15),
+          child: SizedBox(
+            width: 50,
+            height: 50,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
                     color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: const Color(0xFFE8EDF3)),
+                  ),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: AppColors.wine,
+                    size: 23,
                   ),
                 ),
-              ),
+                if (count > 0)
+                  Positioned(
+                    top: 6,
+                    right: 7,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFE60046),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        count > 99 ? '99+' : '$count',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -642,20 +665,23 @@ class BottomNavMock extends StatelessWidget {
   final int index;
   const BottomNavMock({super.key, this.index = 0});
 
+  static const _routes = ['/feed', '/forum', '/quiz', '/subscriptions', '/profile'];
+  static const _labels = ['Feed', 'Fórum', 'Quiz', 'Subscrições', 'Perfil'];
+
+  static const _icons = [
+    LucideIcons.house,
+    LucideIcons.messageSquare,
+    LucideIcons.circleHelp,
+    LucideIcons.share2,
+    LucideIcons.userRound,
+  ];
+
   @override
   Widget build(BuildContext context) {
-    final icons = [
-      Icons.home_outlined,
-      Icons.forum_outlined,
-      Icons.gps_fixed,
-      Icons.link,
-      Icons.person_outline,
-    ];
-    final routes = ['/feed', '/forum', '/quiz', '/subscriptions', '/profile'];
     return BottomNavigationBar(
       currentIndex: index,
       onTap: (i) {
-        final route = routes[i];
+        final route = _routes[i];
         if (ModalRoute.of(context)?.settings.name == route) return;
         Navigator.pushReplacementNamed(context, route);
       },
@@ -663,14 +689,16 @@ class BottomNavMock extends StatelessWidget {
       unselectedItemColor: AppColors.textMuted,
       showSelectedLabels: true,
       showUnselectedLabels: true,
-      selectedFontSize: 10,
+      selectedFontSize: 11,
       unselectedFontSize: 10,
+      selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800),
       type: BottomNavigationBarType.fixed,
       items: [
-        for (var i = 0; i < icons.length; i++)
+        for (var i = 0; i < _icons.length; i++)
           BottomNavigationBarItem(
-            icon: Icon(icons[i], size: 18),
-            label: ['Feed', 'Fórum', 'Quiz', 'Subscrições', 'Perfil'][i],
+            icon: Icon(_icons[i], size: 22),
+            activeIcon: Icon(_icons[i], size: 27),
+            label: _labels[i],
           ),
       ],
     );

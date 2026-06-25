@@ -47,6 +47,10 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Esta app precisa de acesso à câmara para adicionar imagens ao tópico.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Esta app precisa de acesso à galeria para adicionar imagens ao tópico.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

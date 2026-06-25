@@ -27,11 +27,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       author: 'Maria K.',
       text: 'Explicação muito clara sobre a inflação!',
       timeAgo: 'Há 1h',
+      likes: 4,
     ),
     const _VideoComment(
       author: 'João F.',
       text: 'Seria útil um episódio sobre o período 1999–2002.',
       timeAgo: 'Ontem',
+      likes: 2,
     ),
   ];
 
@@ -140,39 +142,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   controller: scrollController,
                   itemCount: _comments.length,
                   separatorBuilder: (_, _) => const Divider(height: 20),
-                  itemBuilder: (context, index) {
-                    final c = _comments[index];
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          c.author,
-                          style: const TextStyle(
-                            color: AppColors.textMain,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          c.text,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                            height: 1.4,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          c.timeAgo,
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+                  itemBuilder: (context, index) => _VideoCommentCard(
+                    key: ValueKey(index),
+                    comment: _comments[index],
+                  ),
                 ),
               ),
             ],
@@ -314,13 +287,13 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 Row(
                   children: [
                     CircleAvatar(
-                      radius: 18,
+                      radius: 16,
                       backgroundColor: AppColors.winePill,
                       child: Text(
                         video.authorInitials,
                         style: const TextStyle(
                           color: AppColors.wine,
-                          fontSize: 11,
+                          fontSize: 10,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -332,18 +305,16 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                         Text(
                           video.author,
                           style: const TextStyle(
-                            color: AppColors.textMain,
+                            color: AppColors.wine,
                             fontSize: 13,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const SizedBox(height: 1),
                         Text(
                           video.date,
                           style: const TextStyle(
                             color: AppColors.muted,
                             fontSize: 11,
-                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -488,12 +459,194 @@ class _VideoComment {
   final String author;
   final String text;
   final String timeAgo;
+  final int likes;
 
   const _VideoComment({
     required this.author,
     required this.text,
     required this.timeAgo,
+    this.likes = 0,
   });
+}
+
+class _VideoCommentCard extends StatefulWidget {
+  final _VideoComment comment;
+  const _VideoCommentCard({super.key, required this.comment});
+
+  @override
+  State<_VideoCommentCard> createState() => _VideoCommentCardState();
+}
+
+class _VideoCommentCardState extends State<_VideoCommentCard> {
+  late int _likes;
+  bool _liked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _likes = widget.comment.likes;
+  }
+
+  void _toggleLike() {
+    setState(() {
+      _liked = !_liked;
+      _likes += _liked ? 1 : -1;
+    });
+  }
+
+  void _showOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      builder: (_) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined, color: AppColors.muted),
+              title: const Text('Reportar'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined, color: AppColors.muted),
+              title: const Text('Copiar texto'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.share_outlined, color: AppColors.muted),
+              title: const Text('Partilhar'),
+              onTap: () => Navigator.pop(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = widget.comment.author
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .take(2)
+        .map((w) => w[0].toUpperCase())
+        .join();
+    const indent = 46.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: AppColors.winePill,
+              child: Text(
+                initials,
+                style: const TextStyle(
+                  color: AppColors.wine,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: RichText(
+                text: TextSpan(
+                  children: [
+                    TextSpan(
+                      text: widget.comment.author,
+                      style: const TextStyle(
+                        color: AppColors.textMain,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    TextSpan(
+                      text: ' • ${widget.comment.timeAgo}',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.only(left: indent),
+          child: Text(
+            widget.comment.text,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(left: indent - 4),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: _toggleLike,
+                child: Row(
+                  children: [
+                    Icon(
+                      _liked ? Icons.favorite : Icons.favorite_border,
+                      color: _liked ? AppColors.wine : AppColors.muted,
+                      size: 15,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$_likes',
+                      style: TextStyle(
+                        color: _liked ? AppColors.wine : AppColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              GestureDetector(
+                onTap: () {},
+                child: const Text(
+                  'Responder',
+                  style: TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: _showOptions,
+                child: const Icon(
+                  Icons.more_horiz,
+                  color: AppColors.muted,
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _FullscreenPlaybackResult {

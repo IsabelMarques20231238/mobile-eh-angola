@@ -6,6 +6,7 @@ class AuthUser {
   final String email;
   final String? avatarUrl;
   final String? bio;
+  final String? profession;
   final List<String> roles;
 
   const AuthUser({
@@ -14,6 +15,7 @@ class AuthUser {
     required this.email,
     this.avatarUrl,
     this.bio,
+    this.profession,
     this.roles = const [],
   });
 
@@ -24,6 +26,7 @@ class AuthUser {
       email: json['email']?.toString() ?? '',
       avatarUrl: json['avatar_url']?.toString(),
       bio: json['bio']?.toString(),
+      profession: json['profession']?.toString(),
       roles: _asList(json['roles']).map((role) {
         if (role is Map) return role['role']?.toString() ?? '';
         return role.toString();

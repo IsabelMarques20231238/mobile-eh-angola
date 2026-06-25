@@ -34,6 +34,50 @@ class AppColors {
   static const Color red = Color(0xFFB83357);
 }
 
+// ── Transição suave personalizada ────────────────────────────────────────────
+
+class _SmoothPageTransitionsBuilder extends PageTransitionsBuilder {
+  const _SmoothPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    // Página a entrar: desliza da direita com fade inicial
+    final slideIn = Tween<Offset>(
+      begin: const Offset(1.0, 0.0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+
+    final fadeIn = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: animation,
+        curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
+      ),
+    );
+
+    // Página a sair: recua ligeiramente para a esquerda (efeito parallax)
+    final slideOut = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(-0.18, 0.0),
+    ).animate(
+      CurvedAnimation(parent: secondaryAnimation, curve: Curves.easeInCubic),
+    );
+
+    return SlideTransition(
+      position: slideOut,
+      child: FadeTransition(
+        opacity: fadeIn,
+        child: SlideTransition(position: slideIn, child: child),
+      ),
+    );
+  }
+}
+
 class AppTheme {
   static ThemeData get theme {
     return ThemeData(
@@ -41,6 +85,15 @@ class AppTheme {
       fontFamily: 'Arial',
       colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary, primary: AppColors.primary, surface: AppColors.surface),
       scaffoldBackgroundColor: AppColors.background,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: _SmoothPageTransitionsBuilder(),
+          TargetPlatform.iOS:     _SmoothPageTransitionsBuilder(),
+          TargetPlatform.windows: _SmoothPageTransitionsBuilder(),
+          TargetPlatform.linux:   _SmoothPageTransitionsBuilder(),
+          TargetPlatform.macOS:   _SmoothPageTransitionsBuilder(),
+        },
+      ),
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.background,
         surfaceTintColor: Colors.transparent,

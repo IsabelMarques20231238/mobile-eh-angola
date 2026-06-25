@@ -10,34 +10,47 @@ class ArticleDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.card,
+      backgroundColor: Colors.white,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: AppColors.card,
-        toolbarHeight: 44,
-        titleSpacing: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.chevron_left, color: AppColors.wine, size: 22),
-          onPressed: () => Navigator.pop(context),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        toolbarHeight: 54,
+        leading: Container(
+          margin: const EdgeInsets.only(left: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.35),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+            onPressed: () => Navigator.pop(context),
+          ),
         ),
-        title: const SizedBox.shrink(),
         actions: [
-          IconButton(
-            icon: const Icon(
-              Icons.bookmark_border,
-              color: AppColors.wine,
-              size: 18,
+          Container(
+            margin: const EdgeInsets.only(right: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+              shape: BoxShape.circle,
             ),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(
-              Icons.share_outlined,
-              color: AppColors.wine,
-              size: 20,
+            child: IconButton(
+              icon: const Icon(Icons.bookmark_border, color: Colors.white, size: 20),
+              onPressed: () {},
             ),
-            onPressed: () {},
           ),
-          const SizedBox(width: 6),
+          Container(
+            margin: const EdgeInsets.only(right: 10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.share_outlined, color: Colors.white, size: 20),
+              onPressed: () {},
+            ),
+          ),
         ],
       ),
       body: ListView(
@@ -74,57 +87,54 @@ class ArticleDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    InkWell(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PublicCreatorProfileScreen(
-                              name: article.author,
-                              initials: article.authorInitials,
-                            ),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PublicCreatorProfileScreen(
+                        name: article.author,
+                        initials: article.authorInitials,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: AppColors.winePill,
+                        child: Text(
+                          article.authorInitials,
+                          style: const TextStyle(
+                            color: AppColors.wine,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
                           ),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(6),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          CircleAvatar(
-                            radius: 11,
-                            backgroundColor: AppColors.wine,
-                            child: Text(
-                              article.authorInitials,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 8,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
                           Text(
                             article.author,
                             style: const TextStyle(
-                              color: AppColors.textMain,
+                              color: AppColors.wine,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            article.date,
+                            style: const TextStyle(
+                              color: AppColors.muted,
                               fontSize: 11,
-                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      article.date,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -192,9 +202,11 @@ class ArticleDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                ...article.comments
-                    .take(2)
-                    .map((comment) => _CommentTile(comment: comment)),
+                for (int i = 0; i < article.comments.length; i++) ...[
+                  if (i > 0)
+                    const Divider(height: 24, color: AppColors.borderLight),
+                  _CommentTile(comment: article.comments[i]),
+                ],
                 TextButton(
                   onPressed: () {},
                   style: TextButton.styleFrom(
@@ -224,44 +236,45 @@ class _HeroVisual extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 150,
-      color: article.accent.withValues(alpha: .18),
-      child: Stack(
-        children: [
-          Positioned(
-            left: -18,
-            bottom: -34,
-            child: Icon(
-              Icons.account_balance,
-              size: 160,
-              color: Colors.white.withValues(alpha: .48),
-            ),
-          ),
-          Positioned(
-            right: -18,
-            top: 18,
-            child: Icon(
-              Icons.trending_up,
-              size: 96,
-              color: Colors.white.withValues(alpha: .38),
-            ),
-          ),
-          Center(
-            child: Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: AppColors.card,
-                borderRadius: BorderRadius.circular(8),
+    return Stack(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 270,
+          child: article.imageUrl != null
+              ? Image.network(
+                  article.imageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => _fallback(),
+                )
+              : _fallback(),
+        ),
+        // bottom fade to white
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            height: 90,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.white],
               ),
-              child: Icon(article.icon, color: article.accent, size: 36),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
+
+  Widget _fallback() => Container(
+    color: article.accent.withValues(alpha: .15),
+    child: Center(
+      child: Icon(article.icon, size: 64, color: article.accent.withValues(alpha: .5)),
+    ),
+  );
 }
 
 class _Badge extends StatelessWidget {
@@ -272,15 +285,18 @@ class _Badge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: const BoxDecoration(color: AppColors.wine),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.winePill,
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Text(
         label,
         style: const TextStyle(
-          color: Colors.white,
-          fontSize: 8,
+          color: AppColors.wine,
+          fontSize: 10,
           fontWeight: FontWeight.w900,
-          letterSpacing: .7,
+          letterSpacing: 0.4,
         ),
       ),
     );
@@ -335,72 +351,182 @@ class _QuoteCard extends StatelessWidget {
   }
 }
 
-class _CommentTile extends StatelessWidget {
+class _CommentTile extends StatefulWidget {
   final ArticleComment comment;
 
   const _CommentTile({required this.comment});
 
   @override
+  State<_CommentTile> createState() => _CommentTileState();
+}
+
+class _CommentTileState extends State<_CommentTile> {
+  late int _likes;
+  bool _liked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _likes = widget.comment.likes;
+  }
+
+  void _toggleLike() {
+    setState(() {
+      _liked = !_liked;
+      _likes += _liked ? 1 : -1;
+    });
+  }
+
+  void _showOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      builder: (_) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined, color: AppColors.muted),
+              title: const Text('Reportar'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined, color: AppColors.muted),
+              title: const Text('Copiar texto'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.share_outlined, color: AppColors.muted),
+              title: const Text('Partilhar'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.block_outlined, color: AppColors.muted),
+              title: const Text('Bloquear utilizador'),
+              onTap: () => Navigator.pop(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 13),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 15,
-            backgroundColor: comment.avatarColor,
-            child: Text(
-              comment.initials,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 9,
-                fontWeight: FontWeight.w900,
+    const indent = 46.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: widget.comment.avatarColor,
+              child: Text(
+                widget.comment.initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            const SizedBox(width: 10),
+            Expanded(
+              child: RichText(
+                text: TextSpan(
                   children: [
-                    Expanded(
-                      child: Text(
-                        comment.author,
-                        style: const TextStyle(
-                          color: AppColors.textMain,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
+                    TextSpan(
+                      text: widget.comment.author,
+                      style: const TextStyle(
+                        color: AppColors.textMain,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    Text(
-                      comment.timeAgo,
+                    TextSpan(
+                      text: ' • ${widget.comment.timeAgo}',
                       style: const TextStyle(
                         color: AppColors.muted,
-                        fontSize: 9,
+                        fontSize: 12,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  comment.text,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                    height: 1.35,
-                  ),
-                ),
-              ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.only(left: indent),
+          child: Text(
+            widget.comment.text,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.5,
             ),
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(left: indent - 4),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: _toggleLike,
+                child: Row(
+                  children: [
+                    Icon(
+                      _liked ? Icons.favorite : Icons.favorite_border,
+                      color: _liked ? AppColors.wine : AppColors.muted,
+                      size: 15,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$_likes',
+                      style: TextStyle(
+                        color: _liked ? AppColors.wine : AppColors.muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              GestureDetector(
+                onTap: () {},
+                child: const Text(
+                  'Responder',
+                  style: TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: _showOptions,
+                child: const Icon(
+                  Icons.more_horiz,
+                  color: AppColors.muted,
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -458,6 +584,7 @@ class _CommentComposer extends StatelessWidget {
 }
 
 class ArticleDetail {
+  final String? imageUrl;
   final String category;
   final String readTime;
   final String title;
@@ -473,6 +600,7 @@ class ArticleDetail {
   final List<ArticleComment> comments;
 
   const ArticleDetail({
+    this.imageUrl,
     required this.category,
     required this.readTime,
     required this.title,
@@ -495,6 +623,7 @@ class ArticleComment {
   final String text;
   final String timeAgo;
   final Color avatarColor;
+  final int likes;
 
   const ArticleComment({
     required this.author,
@@ -502,11 +631,14 @@ class ArticleComment {
     required this.text,
     required this.timeAgo,
     required this.avatarColor,
+    this.likes = 0,
   });
 }
 
 const featuredArticleDetails = [
   ArticleDetail(
+    imageUrl:
+        'https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?auto=format&fit=crop&w=900&q=80',
     category: 'Economia',
     readTime: '8 min leitura',
     title:
@@ -532,6 +664,7 @@ const featuredArticleDetails = [
         initials: 'RM',
         timeAgo: '2h atrás',
         avatarColor: Color(0xFF2F536B),
+        likes: 7,
         text:
             'Excelente análise, professora. Seria interessante aprofundar o impacto das Fintechs atuais...',
       ),
@@ -540,6 +673,7 @@ const featuredArticleDetails = [
         initials: 'EK',
         timeAgo: '5h atrás',
         avatarColor: Color(0xFF8B4B1F),
+        likes: 3,
         text:
             'Obrigada por partilhar estes dados históricos. Ajudou muito no meu trabalho académico!',
       ),
@@ -548,6 +682,7 @@ const featuredArticleDetails = [
         initials: 'MP',
         timeAgo: '1d atrás',
         avatarColor: AppColors.wine,
+        likes: 1,
         text:
             'O enquadramento colonial ajuda a compreender muitas das limitações actuais.',
       ),
@@ -578,6 +713,7 @@ const featuredArticleDetails = [
         initials: 'RM',
         timeAgo: '1h atrás',
         avatarColor: Color(0xFF2F536B),
+        likes: 5,
         text:
             'A ligação entre moeda e soberania ficou muito clara neste texto.',
       ),
@@ -586,6 +722,7 @@ const featuredArticleDetails = [
         initials: 'EK',
         timeAgo: '4h atrás',
         avatarColor: Color(0xFF8B4B1F),
+        likes: 2,
         text: 'Gostei da contextualização sobre o Zimbo e os mercados locais.',
       ),
     ],

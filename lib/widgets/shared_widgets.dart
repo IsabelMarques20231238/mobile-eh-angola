@@ -117,71 +117,68 @@ class ForumInteractionBar extends StatelessWidget {
   final int likes;
   final bool liked;
   final int comments;
-  final int savedCount;
   final bool saved;
   final VoidCallback? onLike;
   final VoidCallback? onComment;
   final VoidCallback? onSave;
   final bool compact;
+  final bool locked;
 
   const ForumInteractionBar({
     super.key,
     required this.likes,
     required this.liked,
     required this.comments,
-    this.savedCount = 0,
     this.saved = false,
     this.onLike,
     this.onComment,
     this.onSave,
     this.compact = false,
+    this.locked = false,
   });
 
   static const _statsColor = Color(0xFF65676B);
 
-  String _commentLabel(int count) =>
-      count == 1 ? '1 comentário' : '$count comentários';
+  String _commentLabel(int count) => '$count';
 
-  String _savedLabel(int count) =>
-      count == 1 ? '1 guardado' : '$count guardados';
-
-  String _likeLabel(int count) =>
-      count == 1 ? '1 gosto' : '$count gostos';
+  String _likeLabel(int count) => '$count';
 
   @override
   Widget build(BuildContext context) {
     final statsSize = compact ? 12.0 : 13.0;
     final actionSize = compact ? 14.0 : 15.0;
     final iconSize = compact ? 18.0 : 20.0;
-    final showStats = likes > 0 || comments > 0 || savedCount > 0;
+    final showStats = likes > 0 || comments > 0;
 
     return Column(
       children: [
         if (showStats) ...[
           Row(
             children: [
-              if (likes > 0)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.thumb_up,
-                      size: compact ? 14 : 15,
-                      color: AppColors.wine,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      _likeLabel(likes),
-                      style: TextStyle(
-                        color: _statsColor,
-                        fontSize: statsSize,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+              if (likes > 0) ...[
+                Icon(
+                  Icons.favorite_rounded,
+                  size: compact ? 14 : 15,
+                  color: AppColors.wine,
                 ),
-              const Spacer(),
-              if (comments > 0)
+                const SizedBox(width: 5),
+                Text(
+                  _likeLabel(likes),
+                  style: TextStyle(
+                    color: _statsColor,
+                    fontSize: statsSize,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+              if (likes > 0 && comments > 0) const SizedBox(width: 14),
+              if (comments > 0) ...[
+                Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  size: compact ? 13 : 14,
+                  color: _statsColor,
+                ),
+                const SizedBox(width: 5),
                 Text(
                   _commentLabel(comments),
                   style: TextStyle(
@@ -190,61 +187,55 @@ class ForumInteractionBar extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-              if (comments > 0 && savedCount > 0) const SizedBox(width: 12),
-              if (savedCount > 0)
-                Text(
-                  _savedLabel(savedCount),
-                  style: TextStyle(
-                    color: _statsColor,
-                    fontSize: statsSize,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+              ],
             ],
           ),
-          SizedBox(height: compact ? 8 : 10),
-          Divider(
-            height: 1,
-            thickness: 1,
-            color: AppColors.borderLight.withValues(alpha: .85),
-          ),
-          SizedBox(height: compact ? 2 : 4),
-        ],
-        Row(
-          children: [
-            Expanded(
-              child: _ForumActionButton(
-                icon: liked ? Icons.thumb_up : Icons.thumb_up_outlined,
-                label: 'Gosto',
-                active: liked,
-                activeColor: AppColors.wine,
-                iconSize: iconSize,
-                fontSize: actionSize,
-                onTap: onLike,
-              ),
+          if (!locked) ...[
+            SizedBox(height: compact ? 8 : 10),
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: AppColors.borderLight.withValues(alpha: .85),
             ),
-            Expanded(
-              child: _ForumActionButton(
-                icon: Icons.chat_bubble_outline_rounded,
-                label: 'Comentar',
-                iconSize: iconSize,
-                fontSize: actionSize,
-                onTap: onComment,
-              ),
-            ),
-            Expanded(
-              child: _ForumActionButton(
-                icon: saved ? Icons.bookmark : Icons.bookmark_border_rounded,
-                label: 'Guardar',
-                active: saved,
-                activeColor: AppColors.wine,
-                iconSize: iconSize,
-                fontSize: actionSize,
-                onTap: onSave,
-              ),
-            ),
+            SizedBox(height: compact ? 2 : 4),
           ],
-        ),
+        ],
+        if (!locked)
+          Row(
+            children: [
+              Expanded(
+                child: _ForumActionButton(
+                  icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  label: 'Gosto',
+                  active: liked,
+                  activeColor: AppColors.wine,
+                  iconSize: iconSize,
+                  fontSize: actionSize,
+                  onTap: onLike,
+                ),
+              ),
+              Expanded(
+                child: _ForumActionButton(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: 'Comentar',
+                  iconSize: iconSize,
+                  fontSize: actionSize,
+                  onTap: onComment,
+                ),
+              ),
+              Expanded(
+                child: _ForumActionButton(
+                  icon: saved ? Icons.bookmark : Icons.bookmark_border_rounded,
+                  label: 'Guardar',
+                  active: saved,
+                  activeColor: AppColors.wine,
+                  iconSize: iconSize,
+                  fontSize: actionSize,
+                  onTap: onSave,
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -328,7 +319,7 @@ class StatsRow extends StatelessWidget {
           style: const TextStyle(fontSize: 13, color: AppColors.muted),
         ),
         const SizedBox(width: 10),
-        const Icon(Icons.thumb_up_outlined, size: 16, color: AppColors.muted),
+        const Icon(Icons.favorite_border_rounded, size: 16, color: AppColors.muted),
         const SizedBox(width: 3),
         Text(
           '$likes',
