@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../models/forum_models.dart';
+import '../../routes/app_routes.dart';
+import '../../services/api_client.dart';
+import '../../services/forum_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 import '../articles/article_detail_screen.dart';
+import '../forum/forum_topic_detail_screen.dart';
 import '../podcast/podcast_detail_screen.dart';
 import '../video/video_detail_screen.dart';
 import 'saved_item_models.dart';
@@ -20,10 +25,15 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
 
+  List<ForumTopic> _savedTopics = [];
+  bool _topicsLoading = false;
+  String? _topicsError;
+
   @override
   void initState() {
     super.initState();
     _items = List.of(SavedItemData.items);
+    _loadSavedTopics();
   }
 
   @override
@@ -31,6 +41,18 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSavedTopics() async {
+    setState(() { _topicsLoading = true; _topicsError = null; });
+    try {
+      final topics = await ForumService.instance.getSavedTopics();
+      if (mounted) setState(() => _savedTopics = topics);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _topicsError = e.message);
+    } finally {
+      if (mounted) setState(() => _topicsLoading = false);
+    }
   }
 
   List<SavedItem> get _filteredItems {
@@ -43,6 +65,15 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
     }).toList();
   }
 
+  List<ForumTopic> get _filteredTopics {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) return _savedTopics;
+    return _savedTopics.where((t) =>
+      t.title.toLowerCase().contains(query) ||
+      t.authorName.toLowerCase().contains(query),
+    ).toList();
+  }
+
   void _removeItem(SavedItem item) {
     setState(() => _items.removeWhere((i) => i.id == item.id));
     ScaffoldMessenger.of(context).showSnackBar(
@@ -50,11 +81,27 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
     );
   }
 
+  Future<void> _unsaveTopic(ForumTopic topic) async {
+    // Optimistic remove
+    setState(() => _savedTopics.removeWhere((t) => t.id == topic.id));
+    try {
+      await ForumService.instance.bookmarkTopic(topic.id);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _savedTopics.insert(0, topic));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
+    }
+  }
+
   void _openItem(SavedItem item) {
     switch (item.type) {
       case SavedItemType.article:
         final index = item.articleDetailIndex ?? 0;
-        final article = featuredArticleDetails[index % featuredArticleDetails.length];
+        final article =
+            featuredArticleDetails[index % featuredArticleDetails.length];
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -72,15 +119,32 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => const PodcastDetailScreen(episode: featuredPodcast),
+            builder: (_) =>
+                const PodcastDetailScreen(episode: featuredPodcast),
           ),
         );
     }
   }
 
+  void _openTopic(ForumTopic topic) {
+    Navigator.push(
+      context,
+      AppRoutes.bottomSlideRoute(builder: (_) => ForumTopicDetailScreen(topic: topic)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filteredItems;
+    final filteredTopics = _filteredTopics;
+
+    final bool showContentSection = _filter != SavedItemFilter.forum;
+    final bool showForumSection =
+        _filter == SavedItemFilter.all || _filter == SavedItemFilter.forum;
+
+    final bool hasContent = (showContentSection && filtered.isNotEmpty) ||
+        (showForumSection &&
+            (_topicsLoading || _topicsError != null || filteredTopics.isNotEmpty));
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -145,13 +209,102 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
                 ],
               ),
             ),
-            if (filtered.isEmpty)
+
+            // ── Estado vazio ──────────────────────────────────────────────
+            if (!hasContent && !_topicsLoading)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: _EmptySavedItems(),
               )
-            else if (_filter == SavedItemFilter.all)
-              ..._buildGroupedSlivers(filtered)
+
+            // ── Filtro: Tópicos de Fórum ──────────────────────────────────
+            else if (_filter == SavedItemFilter.forum) ...[
+              if (_topicsLoading)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child:
+                        Center(child: CircularProgressIndicator(color: AppColors.wine)),
+                  ),
+                )
+              else if (_topicsError != null)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      children: [
+                        Text(_topicsError!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: AppColors.muted, fontSize: 13)),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _loadSavedTopics,
+                          child: const Text('Tentar novamente',
+                              style: TextStyle(color: AppColors.wine)),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  sliver: SliverList.separated(
+                    itemCount: filteredTopics.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 18),
+                    itemBuilder: (context, i) {
+                      final topic = filteredTopics[i];
+                      return _SavedForumTopicTile(
+                        topic: topic,
+                        onTap: () => _openTopic(topic),
+                        onUnsave: () => _unsaveTopic(topic),
+                      );
+                    },
+                  ),
+                ),
+            ]
+
+            // ── Filtro: Todos ─────────────────────────────────────────────
+            else if (_filter == SavedItemFilter.all) ...[
+              ..._buildGroupedSlivers(filtered),
+              // Secção de fórum no final do "Todos"
+              if (_topicsLoading)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                        child:
+                            CircularProgressIndicator(color: AppColors.wine)),
+                  ),
+                )
+              else if (filteredTopics.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: _SectionHeader(
+                    title: 'Fórum',
+                    onSeeAll: () =>
+                        setState(() => _filter = SavedItemFilter.forum),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  sliver: SliverList.separated(
+                    itemCount: filteredTopics.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 18),
+                    itemBuilder: (context, i) {
+                      final topic = filteredTopics[i];
+                      return _SavedForumTopicTile(
+                        topic: topic,
+                        onTap: () => _openTopic(topic),
+                        onUnsave: () => _unsaveTopic(topic),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ]
+
+            // ── Outros filtros (Artigos / Vídeos / Podcasts) ──────────────
             else
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -214,6 +367,8 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
   }
 }
 
+// ── Cabeçalho ─────────────────────────────────────────────────────────────────
+
 class _SavedHeader extends StatelessWidget {
   final VoidCallback onSearchTap;
 
@@ -248,6 +403,8 @@ class _SavedHeader extends StatelessWidget {
     );
   }
 }
+
+// ── Chips de filtro ───────────────────────────────────────────────────────────
 
 class _FilterChips extends StatelessWidget {
   final SavedItemFilter selected;
@@ -321,6 +478,8 @@ class _FilterChip extends StatelessWidget {
   }
 }
 
+// ── Cabeçalho de secção ───────────────────────────────────────────────────────
+
 class _SectionHeader extends StatelessWidget {
   final String title;
   final VoidCallback onSeeAll;
@@ -361,6 +520,8 @@ class _SectionHeader extends StatelessWidget {
     );
   }
 }
+
+// ── Tile de conteúdo (artigo / vídeo / podcast) ───────────────────────────────
 
 class _SavedItemTile extends StatelessWidget {
   final SavedItem item;
@@ -525,11 +686,108 @@ class _Thumbnail extends StatelessWidget {
   }
 
   IconData _iconForType(SavedItemType type) => switch (type) {
-    SavedItemType.article => Icons.article_outlined,
-    SavedItemType.video => Icons.play_circle_outline,
-    SavedItemType.podcast => Icons.podcasts,
-  };
+        SavedItemType.article => Icons.article_outlined,
+        SavedItemType.video => Icons.play_circle_outline,
+        SavedItemType.podcast => Icons.podcasts,
+      };
 }
+
+// ── Tile de tópico de fórum ───────────────────────────────────────────────────
+
+class _SavedForumTopicTile extends StatelessWidget {
+  final ForumTopic topic;
+  final VoidCallback onTap;
+  final VoidCallback onUnsave;
+
+  const _SavedForumTopicTile({
+    required this.topic,
+    required this.onTap,
+    required this.onUnsave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Thumbnail: imagem do tópico ou ícone placeholder
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: AppColors.wineBg,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: topic.imageUrl != null
+                ? Image.network(
+                    topic.imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const Center(
+                      child: Icon(Icons.forum_outlined,
+                          color: AppColors.wine, size: 28),
+                    ),
+                  )
+                : const Center(
+                    child: Icon(Icons.forum_outlined,
+                        color: AppColors.wine, size: 28),
+                  ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  topic.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textMain,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${topic.comments} comentários · ${topic.authorName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  topic.timeAgo,
+                  style: const TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: onUnsave,
+            icon: const Icon(Icons.bookmarks, color: AppColors.wine, size: 22),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Estado vazio ──────────────────────────────────────────────────────────────
 
 class _EmptySavedItems extends StatelessWidget {
   const _EmptySavedItems();

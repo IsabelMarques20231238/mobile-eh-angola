@@ -30,7 +30,16 @@ class ApiClient {
 
   static void Function()? onUnauthorized;
 
+  /// ID de socket recebido no handshake WebSocket.
+  /// Injectado como `X-Socket-ID` em pedidos mutantes para evitar que o servidor
+  /// devolva o evento de volta para este cliente.
+  String? socketId;
+
   String? _token;
+
+  /// Devolve o token em memória sem ler o SharedPreferences.
+  /// Útil quando precisamos do valor de forma síncrona (ex: URL do WebSocket).
+  String? get cachedToken => _token;
 
   Future<String?> get token async {
     if (_token != null) return _token;
@@ -134,6 +143,11 @@ class ApiClient {
         throw const ApiException('Inicie sessao para continuar.', statusCode: 401);
       }
       headers['Authorization'] = 'Bearer $currentToken';
+    }
+
+    // Desduplicação: informa o servidor que não deve reenviar o evento WS para nós.
+    if (method != 'GET' && socketId != null) {
+      headers['X-Socket-ID'] = socketId!;
     }
 
     http.Response response;

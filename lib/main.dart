@@ -3,6 +3,8 @@ import 'routes/app_routes.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'services/auth_state.dart';
 import 'services/notification_state.dart';
+import 'services/theme_state.dart';
+import 'services/websocket_service.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -14,12 +16,17 @@ class EconomiaHistoriaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Economia com Historia',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.theme,
-      home: const _AppLoader(),
-      onGenerateRoute: AppRoutes.generateRoute,
+    return ListenableBuilder(
+      listenable: ThemeState.instance,
+      builder: (context, _) => MaterialApp(
+        title: 'Economia com Historia',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeState.instance.mode,
+        home: const _AppLoader(),
+        onGenerateRoute: AppRoutes.generateRoute,
+      ),
     );
   }
 }
@@ -39,7 +46,12 @@ class _AppLoaderState extends State<_AppLoader> {
   }
 
   Future<void> _init() async {
-    await AuthState.instance.restore();
+    await Future.wait([
+      AuthState.instance.restore(),
+      ThemeState.instance.restore(),
+    ]);
+    // Ligar o WebSocket depois do auth, para que o token já esteja em memória.
+    WebSocketService.instance.connect();
     if (!mounted) return;
     if (AuthState.instance.isAuthenticated) {
       NotificationState.instance.refresh();

@@ -70,11 +70,12 @@ class VisibilityBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     final isPrivate = visibility == TopicVisibility.privado;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: isPrivate ? const Color(0xFFFFF3CD) : AppColors.bg,
+        color: isPrivate ? const Color(0xFFFFF3CD) : c.bg,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
@@ -82,7 +83,7 @@ class VisibilityBadge extends StatelessWidget {
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w600,
-          color: isPrivate ? const Color(0xFF8A6D1D) : AppColors.muted,
+          color: isPrivate ? const Color(0xFF8A6D1D) : c.muted,
         ),
       ),
     );
@@ -137,14 +138,13 @@ class ForumInteractionBar extends StatelessWidget {
     this.locked = false,
   });
 
-  static const _statsColor = Color(0xFF65676B);
-
   String _commentLabel(int count) => '$count';
 
   String _likeLabel(int count) => '$count';
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     final statsSize = compact ? 12.0 : 13.0;
     final actionSize = compact ? 14.0 : 15.0;
     final iconSize = compact ? 18.0 : 20.0;
@@ -159,13 +159,13 @@ class ForumInteractionBar extends StatelessWidget {
                 Icon(
                   Icons.favorite_rounded,
                   size: compact ? 14 : 15,
-                  color: AppColors.wine,
+                  color: c.wine,
                 ),
                 const SizedBox(width: 5),
                 Text(
                   _likeLabel(likes),
                   style: TextStyle(
-                    color: _statsColor,
+                    color: c.textSecondary,
                     fontSize: statsSize,
                     fontWeight: FontWeight.w500,
                   ),
@@ -176,13 +176,13 @@ class ForumInteractionBar extends StatelessWidget {
                 Icon(
                   Icons.chat_bubble_outline_rounded,
                   size: compact ? 13 : 14,
-                  color: _statsColor,
+                  color: c.textSecondary,
                 ),
                 const SizedBox(width: 5),
                 Text(
                   _commentLabel(comments),
                   style: TextStyle(
-                    color: _statsColor,
+                    color: c.textSecondary,
                     fontSize: statsSize,
                     fontWeight: FontWeight.w500,
                   ),
@@ -195,7 +195,7 @@ class ForumInteractionBar extends StatelessWidget {
             Divider(
               height: 1,
               thickness: 1,
-              color: AppColors.borderLight.withValues(alpha: .85),
+              color: c.border,
             ),
             SizedBox(height: compact ? 2 : 4),
           ],
@@ -262,7 +262,7 @@ class _ForumActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? activeColor : const Color(0xFF65676B);
+    final color = active ? activeColor : context.c.textSecondary;
 
     return Material(
       color: Colors.transparent,
@@ -353,13 +353,14 @@ class ChipFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return Container(
       height: 84,
-      decoration: const BoxDecoration(
-        color: AppColors.card,
+      decoration: BoxDecoration(
+        color: c.card,
         border: Border(
-          top: BorderSide(color: AppColors.borderLight),
-          bottom: BorderSide(color: AppColors.borderLight),
+          top: BorderSide(color: c.border),
+          bottom: BorderSide(color: c.border),
         ),
       ),
       child: ListView.separated(
@@ -375,18 +376,16 @@ class ChipFilterBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: active ? AppColors.wine : AppColors.wineBg,
+                color: active ? c.wine : c.wineBg,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: active ? AppColors.wine : AppColors.border,
-                ),
+                border: Border.all(color: active ? c.wine : c.border),
               ),
               child: Text(
                 labels[i],
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
-                  color: active ? Colors.white : AppColors.wine,
+                  color: active ? Colors.white : c.wine,
                 ),
               ),
             ),

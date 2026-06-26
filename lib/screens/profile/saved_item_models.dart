@@ -1,10 +1,11 @@
 enum SavedItemType { article, video, podcast }
 
-enum SavedItemFilter { all, articles, videos, podcasts }
+enum SavedItemFilter { all, forum, articles, videos, podcasts }
 
 extension SavedItemFilterLabel on SavedItemFilter {
   String get label => switch (this) {
-    SavedItemFilter.all => 'Todos (${SavedItemData.totalCount})',
+    SavedItemFilter.all => 'Todos',
+    SavedItemFilter.forum => 'Fórum',
     SavedItemFilter.articles => 'Artigos',
     SavedItemFilter.videos => 'Vídeos',
     SavedItemFilter.podcasts => 'Podcasts',
@@ -133,6 +134,7 @@ class SavedItemData {
 bool savedItemMatchesFilter(SavedItem item, SavedItemFilter filter) {
   return switch (filter) {
     SavedItemFilter.all => true,
+    SavedItemFilter.forum => false, // tópicos de fórum são geridos separadamente
     SavedItemFilter.articles => item.type == SavedItemType.article,
     SavedItemFilter.videos => item.type == SavedItemType.video,
     SavedItemFilter.podcasts => item.type == SavedItemType.podcast,

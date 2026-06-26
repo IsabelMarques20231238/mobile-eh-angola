@@ -95,6 +95,7 @@ class AppNotification {
   }
 
   IconData get icon {
+    if (type == 'FORUM_JOIN_BY_CODE') return Icons.login_outlined;
     if (type.startsWith('FORUM_')) return Icons.forum_outlined;
     if (type.startsWith('QUIZ_')) return Icons.quiz_outlined;
     if (type == 'NEW_CONTENT') return Icons.article_outlined;
@@ -338,12 +339,13 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     final screenH = MediaQuery.of(context).size.height;
     return Container(
       height: screenH * 0.88,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
         children: [
@@ -353,7 +355,7 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: const Color(0xFFCBD5E1),
+              color: c.border,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -363,18 +365,18 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
             padding: const EdgeInsets.fromLTRB(20, 0, 8, 0),
             child: Row(
               children: [
-                const Text(
+                Text(
                   'Notificações',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
-                    color: AppColors.textMain,
+                    color: c.textMain,
                   ),
                 ),
                 const Spacer(),
                 if (_unreadCount > 0)
                   IconButton(
-                    icon: const Icon(Icons.done_all, color: AppColors.wine, size: 20),
+                    icon: Icon(Icons.done_all, color: c.wine, size: 20),
                     onPressed: _markAllRead,
                     tooltip: 'Marcar todas como lidas',
                     padding: const EdgeInsets.all(8),
@@ -382,15 +384,15 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
                   ),
                 IconButton(
                   icon: _loading
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: AppColors.wine,
+                            color: c.wine,
                           ),
                         )
-                      : const Icon(Icons.refresh, color: AppColors.textSecondary, size: 20),
+                      : Icon(Icons.refresh, color: c.textSecondary, size: 20),
                   onPressed: _loading ? null : _load,
                   tooltip: 'Actualizar',
                   padding: const EdgeInsets.all(8),
@@ -417,13 +419,13 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: active ? AppColors.winePill : const Color(0xFFF1F5F9),
+                      color: active ? c.winePill : c.bg,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       _tabLabels[i],
                       style: TextStyle(
-                        color: active ? AppColors.wine : AppColors.textSecondary,
+                        color: active ? c.wine : c.textSecondary,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                       ),
@@ -434,7 +436,7 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
             ),
           ),
           const SizedBox(height: 8),
-          const Divider(color: Color(0xFFE8EDF3), height: 1),
+          Divider(color: c.border, height: 1),
           // Content — RefreshIndicator always present so pull-to-refresh works
           Expanded(
             child: _error != null && _notifications.isEmpty
@@ -474,15 +476,16 @@ class _PanelList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     if (notifications.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(height: 120),
+        children: [
+          const SizedBox(height: 120),
           Center(
             child: Text(
               'Sem notificações',
-              style: TextStyle(color: AppColors.muted, fontSize: 14),
+              style: TextStyle(color: c.muted, fontSize: 14),
             ),
           ),
         ],
@@ -496,7 +499,7 @@ class _PanelList extends StatelessWidget {
       final day = n.dayLabel;
       if (day != lastDay) {
         if (items.isNotEmpty) {
-          items.add(const Divider(color: Color(0xFFE8EDF3), height: 1));
+          items.add(Divider(color: c.border, height: 1));
         }
         items.add(_DayHeader(label: day));
         lastDay = day;
@@ -522,10 +525,10 @@ class _DayHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w800,
-          color: AppColors.textSecondary,
+          color: context.c.textSecondary,
           letterSpacing: 0.5,
         ),
       ),
@@ -545,58 +548,58 @@ class _PanelTile extends StatelessWidget {
     final unread = !n.isRead;
     return InkWell(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        decoration: BoxDecoration(
-          border: unread
-              ? const Border(left: BorderSide(color: AppColors.wine, width: 3))
-              : null,
-          color: unread ? const Color(0xFFFFF8FA) : Colors.white,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: n.iconBg,
-                borderRadius: BorderRadius.circular(8),
+      child: Builder(builder: (context) {
+        final c = context.c;
+        return Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: BoxDecoration(
+            border: unread
+                ? Border(left: BorderSide(color: c.wine, width: 3))
+                : null,
+            color: unread ? c.wineBg : c.card,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: n.iconBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(n.icon, color: n.iconColor, size: 18),
               ),
-              child: Icon(n.icon, color: n.iconColor, size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    n.message,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppColors.textMain,
-                      fontSize: 12,
-                      fontWeight: unread ? FontWeight.w800 : FontWeight.w600,
-                      height: 1.3,
-                    ),
-                  ),
-                  if (n.formattedDate.isNotEmpty) ...[
-                    const SizedBox(height: 4),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      n.formattedDate,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 11,
+                      n.message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: c.textMain,
+                        fontSize: 12,
+                        fontWeight: unread ? FontWeight.w800 : FontWeight.w600,
+                        height: 1.3,
                       ),
                     ),
+                    if (n.formattedDate.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        n.formattedDate,
+                        style: TextStyle(color: c.muted, fontSize: 11),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      }),
     );
   }
 }
@@ -612,7 +615,7 @@ class _PanelError extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(error, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+          Text(error, style: TextStyle(color: context.c.muted, fontSize: 13)),
           const SizedBox(height: 12),
           TextButton(onPressed: onRetry, child: const Text('Tentar novamente')),
         ],
@@ -798,20 +801,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return Scaffold(
-      backgroundColor: AppColors.card,
+      backgroundColor: c.card,
       appBar: AppBar(
-        backgroundColor: AppColors.card,
+        backgroundColor: c.card,
         toolbarHeight: 56,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.chevron_left, color: AppColors.wine, size: 22),
+          icon: Icon(Icons.chevron_left, color: c.wine, size: 22),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           _unreadCount > 0 ? 'Notificações ($_unreadCount)' : 'Notificações',
-          style: const TextStyle(
-            color: AppColors.textMain,
+          style: TextStyle(
+            color: c.textMain,
             fontSize: 14,
             fontWeight: FontWeight.w900,
           ),

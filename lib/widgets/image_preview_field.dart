@@ -135,6 +135,7 @@ class _UrlTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     final isChecking = state is ImageValidationChecking;
     final isInvalid = state is ImageValidationInvalid;
+    final hasText = controller.text.isNotEmpty;
 
     final borderColor = switch (state) {
       ImageValidationValid() => AppColors.success,
@@ -190,17 +191,14 @@ class _UrlTextField extends StatelessWidget {
                 ),
               ),
             )
-          else if (state is ImageValidationValid)
-            const Padding(
-              padding: EdgeInsets.only(right: 12),
-              child: Icon(Icons.check_circle_rounded,
-                  color: AppColors.success, size: 18),
-            )
-          else if (isInvalid)
-            const Padding(
-              padding: EdgeInsets.only(right: 12),
-              child: Icon(Icons.error_outline_rounded,
-                  color: AppColors.error, size: 18),
+          else if (hasText)
+            GestureDetector(
+              onTap: controller.clear,
+              child: const Padding(
+                padding: EdgeInsets.only(right: 10),
+                child: Icon(Icons.close_rounded,
+                    color: AppColors.muted, size: 18),
+              ),
             ),
         ],
       ),
@@ -218,11 +216,11 @@ class _StateMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return switch (state) {
-      ImageValidationInvalid(:final message) => Padding(
-          padding: const EdgeInsets.only(top: 6, left: 4),
+      ImageValidationInvalid() => const Padding(
+          padding: EdgeInsets.only(top: 6, left: 4),
           child: Text(
-            message,
-            style: const TextStyle(
+            'Não foi possível carregar a imagem deste endereço (URL). Certifica-te de que o link está correto.',
+            style: TextStyle(
               color: AppColors.error,
               fontSize: 11,
               fontWeight: FontWeight.w600,

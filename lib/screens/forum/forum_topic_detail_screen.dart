@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../routes/app_routes.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_state.dart';
 import '../../services/forum_service.dart';
+import '../../services/realtime_event.dart';
+import '../../services/websocket_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/shared_widgets.dart';
@@ -24,11 +28,8 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
   final _replyController = TextEditingController();
   final _replyFocusNode = FocusNode();
   final _scrollController = ScrollController();
-  final _replySectionKey = GlobalKey();
   List<ForumComment> _comments = [];
   late ForumTopic _topic;
-  late int _likes;
-  late bool _liked;
   late bool _saved;
   String? _topicBody;
   List<String> _topicTags = [];
@@ -44,16 +45,17 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
   int? _scrollTargetId;      // ID do comentário de topo para onde rolar
   int? _autoExpandParentId;  // ID do comentário de topo cujas replies se expandem auto
   int? _activeHighlightId;   // ID do comentário/reply a destacar
+  StreamSubscription<RealtimeEvent>? _realtimeSub;
 
   @override
   void initState() {
     super.initState();
     _topic = widget.topic;
-    _likes = widget.topic.likes;
-    _liked = widget.topic.isLiked;
     _saved = widget.topic.isSaved;
-    // Se veio de uma notificação, o título está vazio — precisamos de carregar
-    if (widget.topic.id > 0) _loadTopicDetail();
+    if (widget.topic.id > 0) {
+      _loadTopicDetail();
+      _subscribeToRealtime();
+    }
   }
 
   Future<void> _loadTopicDetail() async {
@@ -70,8 +72,6 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
       setState(() {
         if (detail.topic != null) _topic = detail.topic!;
         _topicBody = detail.body.isNotEmpty ? detail.body : null;
-        _likes = detail.likesCount;
-        _liked = detail.isLiked;
         _saved = detail.isSaved;
         _comments = detail.comments;
         _topicTags = detail.tags;
@@ -98,11 +98,81 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
 
   @override
   void dispose() {
+    _realtimeSub?.cancel();
+    if (widget.topic.id > 0) {
+      WebSocketService.instance.unsubscribeFromTopic(_topic.id);
+    }
     _searchController.dispose();
     _replyController.dispose();
     _replyFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // ── Tempo real ───────────────────────────────────────────────────────────
+
+  void _subscribeToRealtime() {
+    WebSocketService.instance.subscribeToTopic(_topic.id);
+    _realtimeSub = WebSocketService.instance.events.listen(_onRealtimeEvent);
+  }
+
+  void _onRealtimeEvent(RealtimeEvent event) {
+    if (!mounted) return;
+    switch (event) {
+      case CommentCreatedEvent(:final topicId, :final comment):
+        if (topicId != _topic.id) return;
+        setState(() {
+          if (comment.parentId == null) {
+            _comments = [..._comments, comment];
+          } else {
+            _comments = _insertReply(_comments, comment);
+          }
+        });
+
+      case CommentLikeUpdatedEvent(:final commentId, :final likesCount):
+        setState(() {
+          _comments = _updateCommentLike(_comments, commentId, likesCount);
+        });
+
+      case TopicLikeUpdatedEvent(:final topicId, :final likesCount, :final isLiked):
+        if (topicId != _topic.id) return;
+        setState(() => _topic = _topic.copyWith(likes: likesCount, isLiked: isLiked));
+
+      case TopicUpdatedEvent(:final topicId, :final isReadOnly, :final title, :final commentsCount):
+        if (topicId != _topic.id) return;
+        setState(() => _topic = _topic.copyWith(
+              isReadOnly: isReadOnly,
+              title: title,
+              comments: commentsCount,
+            ));
+    }
+  }
+
+  /// Insere uma reply no comentário pai correcto (só um nível de profundidade).
+  List<ForumComment> _insertReply(List<ForumComment> list, ForumComment reply) {
+    return list.map((c) {
+      if (c.numericId == reply.parentId) {
+        return c.copyWith(replies: [...c.replies, reply]);
+      }
+      return c;
+    }).toList();
+  }
+
+  /// Actualiza cirurgicamente o contador de likes num comentário ou numa reply.
+  List<ForumComment> _updateCommentLike(
+    List<ForumComment> list,
+    int commentId,
+    int likesCount,
+  ) {
+    return list.map((c) {
+      if (c.numericId == commentId) return c.copyWith(likes: likesCount);
+      if (c.replies.isNotEmpty) {
+        return c.copyWith(
+          replies: _updateCommentLike(c.replies, commentId, likesCount),
+        );
+      }
+      return c;
+    }).toList();
   }
 
   int get _commentCount =>
@@ -117,139 +187,160 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
       showSearch: _showSearch,
       onSearchChanged: (_) => setState(() {}),
       onSearchTap: () => setState(() => _showSearch = !_showSearch),
-      body: ListView(
-        controller: _scrollController,
-        padding: EdgeInsets.fromLTRB(
-          compact ? 14 : 22,
-          compact ? 24 : 36,
-          compact ? 14 : 22,
-          28,
-        ),
+      body: Column(
         children: [
-          const _BackToForumHeader(),
-          const SizedBox(height: 28),
-          if (_isLoadingTopic)
-            Container(
-              height: 220,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: const Color(0xFFE6ECF3)),
-              ),
-              child: const Center(
-                child: CircularProgressIndicator(color: AppColors.wine),
+          Expanded(
+            child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          // ── Cabeçalho + corpo do tópico + cabeçalho dos comentários ──────
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              compact ? 14 : 22,
+              compact ? 24 : 36,
+              compact ? 14 : 22,
+              0,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                const _BackToForumHeader(),
+                const SizedBox(height: 28),
+                if (_isLoadingTopic)
+                  Container(
+                    height: 220,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: const Color(0xFFE6ECF3)),
+                    ),
+                    child: const Center(
+                      child: CircularProgressIndicator(color: AppColors.wine),
+                    ),
+                  )
+                else if (_topicError != null)
+                  Container(
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: const Color(0xFFE6ECF3)),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.error_outline_rounded,
+                            color: AppColors.wine, size: 36),
+                        const SizedBox(height: 12),
+                        Text(
+                          _topicError!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: AppColors.textSecondary, fontSize: 13),
+                        ),
+                        const SizedBox(height: 16),
+                        TextButton(
+                          onPressed: _loadTopicDetail,
+                          child: const Text('Tentar novamente',
+                              style: TextStyle(color: AppColors.wine)),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  _TopicBodyCard(
+                    topic: _topic,
+                    fullBody: _topicBody,
+                    tags: _topicTags,
+                    saved: _saved,
+                    onSave: _toggleSave,
+                    onEdit: _topic.permissions.canEdit ? _openEdit : null,
+                    onDelete:
+                        _topic.permissions.canDelete ? _deleteTopic : null,
+                  ),
+                const SizedBox(height: 32),
+                _RepliesHeader(count: _commentCount),
+                const SizedBox(height: 20),
+              ]),
+            ),
+          ),
+
+          // ── Lista de comentários (lazy) ───────────────────────────────────
+          if (_isLoadingComments)
+            SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 22),
+              sliver: const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(
+                      child: CircularProgressIndicator(color: AppColors.wine)),
+                ),
               ),
             )
-          else if (_topicError != null)
-            Container(
-              padding: const EdgeInsets.all(28),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: const Color(0xFFE6ECF3)),
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.error_outline_rounded, color: AppColors.wine, size: 36),
-                  const SizedBox(height: 12),
-                  Text(
-                    _topicError!,
+          else if (_commentsError != null)
+            SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 22),
+              sliver: SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Text(
+                    _commentsError!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    style:
+                        const TextStyle(color: AppColors.muted, fontSize: 13),
                   ),
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: _loadTopicDetail,
-                    child: const Text('Tentar novamente', style: TextStyle(color: AppColors.wine)),
-                  ),
-                ],
+                ),
               ),
             )
           else
-          _TopicBodyCard(
-            topic: _topic,
-            fullBody: _topicBody,
-            likes: _likes,
-            liked: _liked,
-            comments: _commentCount,
-            saved: _saved,
-            onLike: _toggleLike,
-            onSave: _toggleSave,
-            onComment: _scrollToReply,
-            onEdit: _topic.permissions.canEdit ? _openEdit : null,
+            SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 22),
+              sliver: SliverList.builder(
+                itemCount: _comments.length,
+                itemBuilder: (context, i) {
+                  final comment = _comments[i];
+                  final commentKey = _commentKeys.putIfAbsent(
+                      comment.numericId, () => GlobalKey());
+                  final isHighlighted = _activeHighlightId == comment.numericId;
+                  final isParent = _autoExpandParentId == comment.numericId;
+                  return Column(
+                    key: commentKey,
+                    children: [
+                      if (i > 0)
+                        const Divider(color: Color(0xFFE8EDF3), height: 1),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 20),
+                        child: _CommentCard(
+                          comment: comment,
+                          onReply: _startReply,
+                          onDelete: _deleteComment,
+                          isHighlighted: isHighlighted,
+                          highlightedReplyId:
+                              isParent ? _activeHighlightId : null,
+                          autoExpandReplies: isParent,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+
+          const SliverPadding(padding: EdgeInsets.only(bottom: 16)),
+        ],
+      ),
           ),
-          if (_topic.permissions.canComment) ...[
-            const SizedBox(height: 32),
-            _ReplyComposer(
-              key: _replySectionKey,
+          if (_topic.isReadOnly)
+            const _ReadOnlyBanner()
+          else
+            _InstagramComposerBar(
               controller: _replyController,
               focusNode: _replyFocusNode,
               onSend: _sendComment,
               replyToName: _replyToName,
               onCancelReply: _cancelReply,
             ),
-            const SizedBox(height: 36),
-          ] else
-            const SizedBox(height: 32),
-          _RepliesHeader(count: _commentCount),
-          const SizedBox(height: 20),
-          if (_isLoadingComments)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(child: CircularProgressIndicator(color: AppColors.wine)),
-            )
-          else if (_commentsError != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text(
-                _commentsError!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.muted, fontSize: 13),
-              ),
-            )
-          else
-          ..._comments.asMap().entries.map((entry) {
-            final i = entry.key;
-            final comment = entry.value;
-            final commentKey = _commentKeys.putIfAbsent(
-                comment.numericId, () => GlobalKey());
-            final isHighlighted = _activeHighlightId == comment.numericId;
-            final isParent = _autoExpandParentId == comment.numericId;
-            return Column(
-              key: commentKey,
-              children: [
-                if (i > 0)
-                  const Divider(color: Color(0xFFE8EDF3), height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: _CommentCard(
-                    comment: comment,
-                    onReply: _startReply,
-                    isHighlighted: isHighlighted,
-                    highlightedReplyId: isParent ? _activeHighlightId : null,
-                    autoExpandReplies: isParent,
-                  ),
-                ),
-              ],
-            );
-          }),
         ],
       ),
     );
-  }
-
-  Future<void> _toggleLike() async {
-    if (!AuthState.requireAuth(context)) return;
-    setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
-    if (_topic.id <= 0) return;
-    try {
-      final r = await ForumService.instance.likeTopic(_topic.id);
-      if (mounted) setState(() { _liked = r.liked; _likes = r.likesCount; });
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() { _liked = !_liked; _likes += _liked ? -1 : 1; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    }
   }
 
   Future<void> _toggleSave() async {
@@ -280,15 +371,36 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
     if (refreshed == true && mounted) _loadTopicDetail();
   }
 
-  void _scrollToReply() {
-    final context = _replySectionKey.currentContext;
-    if (context == null) return;
-    Scrollable.ensureVisible(
-      context,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
-      alignment: 0.1,
+  Future<void> _deleteTopic() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apagar tópico'),
+        content: const Text(
+          'Tens a certeza que queres apagar este tópico? Esta acção é irreversível.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
+            child: const Text('Apagar'),
+          ),
+        ],
+      ),
     );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ForumService.instance.deleteTopic(_topic.id);
+      if (mounted) Navigator.pop(context);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   void _startReply(ForumComment comment) {
@@ -300,7 +412,6 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
     _replyController.selection = TextSelection.fromPosition(
       TextPosition(offset: _replyController.text.length),
     );
-    _scrollToReply();
     _replyFocusNode.requestFocus();
   }
 
@@ -359,6 +470,18 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
       final detail = await ForumService.instance.getTopicDetail(_topic.id);
       if (mounted) setState(() => _comments = detail.comments);
     } catch (_) {}
+  }
+
+  Future<void> _deleteComment(ForumComment comment) async {
+    try {
+      await ForumService.instance.deleteComment(comment.numericId);
+      if (!mounted) return;
+      await _silentRefreshComments();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   /// Determina qual comentário de topo deve ser expandido/scrollado para
@@ -435,26 +558,20 @@ class _BackToForumHeader extends StatelessWidget {
 class _TopicBodyCard extends StatelessWidget {
   final ForumTopic topic;
   final String? fullBody;
-  final int likes;
-  final bool liked;
-  final int comments;
+  final List<String> tags;
   final bool saved;
-  final VoidCallback onLike;
   final VoidCallback onSave;
-  final VoidCallback onComment;
   final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const _TopicBodyCard({
     required this.topic,
     this.fullBody,
-    required this.likes,
-    required this.liked,
-    required this.comments,
+    this.tags = const [],
     required this.saved,
-    required this.onLike,
     required this.onSave,
-    required this.onComment,
     this.onEdit,
+    this.onDelete,
   });
 
   @override
@@ -539,14 +656,10 @@ class _TopicBodyCard extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              if (onEdit != null)
-                IconButton(
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined, size: 20, color: Color(0xFF94A3B8)),
-                  tooltip: 'Editar tópico',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
+              GestureDetector(
+                onTap: () => _showTopicMenu(context),
+                child: const Icon(Icons.more_horiz, color: Color(0xFF94A3B8), size: 22),
+              ),
             ],
           ),
           const SizedBox(height: 34),
@@ -569,6 +682,23 @@ class _TopicBodyCard extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
+          if (tags.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 4,
+              children: tags
+                  .map((tag) => Text(
+                        '#$tag',
+                        style: const TextStyle(
+                          color: Color(0xFF7B001C),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ],
           if (topic.imageUrl != null) ...[
             const SizedBox(height: 28),
             ClipRRect(
@@ -590,18 +720,67 @@ class _TopicBodyCard extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(height: 28),
-          ForumInteractionBar(
-            locked: !AuthState.instance.isAuthenticated,
-            likes: likes,
-            liked: liked,
-            comments: comments,
-            saved: saved,
-            onLike: onLike,
-            onComment: onComment,
-            onSave: onSave,
-          ),
         ],
+      ),
+    );
+  }
+
+  void _showTopicMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFCBD5E1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 4),
+            ListTile(
+              leading: Icon(
+                saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                color: const Color(0xFF64748B),
+              ),
+              title: Text(saved ? 'Guardado' : 'Guardar'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                onSave();
+              },
+            ),
+            if (onEdit != null)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined, color: Color(0xFF64748B)),
+                title: const Text('Editar'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onEdit!();
+                },
+              ),
+            if (onDelete != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
+                title: const Text('Eliminar', style: TextStyle(color: Color(0xFFDC2626))),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  onDelete!();
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.share_outlined, color: Color(0xFF64748B)),
+              title: const Text('Partilhar'),
+              onTap: () => Navigator.pop(sheetCtx),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -612,15 +791,53 @@ class _TopicBodyCard extends StatelessWidget {
   }
 }
 
-class _ReplyComposer extends StatelessWidget {
+// ── Banner de apenas leitura ─────────────────────────────────────────────────
+
+class _ReadOnlyBanner extends StatelessWidget {
+  const _ReadOnlyBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0xFFEEF2F7))),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.lock_outline_rounded,
+                  size: 15, color: Color(0xFF94A3B8)),
+              SizedBox(width: 8),
+              Text(
+                'Este tópico está em modo de apenas leitura.',
+                style: TextStyle(
+                  color: Color(0xFF94A3B8),
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Barra de comentário estilo Instagram ─────────────────────────────────────
+
+class _InstagramComposerBar extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final VoidCallback onSend;
   final String? replyToName;
   final VoidCallback? onCancelReply;
 
-  const _ReplyComposer({
-    super.key,
+  const _InstagramComposerBar({
     required this.controller,
     required this.focusNode,
     required this.onSend,
@@ -629,132 +846,140 @@ class _ReplyComposer extends StatelessWidget {
   });
 
   @override
+  State<_InstagramComposerBar> createState() => _InstagramComposerBarState();
+}
+
+class _InstagramComposerBarState extends State<_InstagramComposerBar> {
+  bool _hasText = false;
+
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onTextChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTextChanged);
+    super.dispose();
+  }
+
+  void _onTextChanged() {
+    final has = widget.controller.text.trim().isNotEmpty;
+    if (has != _hasText) setState(() => _hasText = has);
+  }
+
+
+  @override
   Widget build(BuildContext context) {
+    final initials = AuthState.instance.isAuthenticated
+        ? AuthState.instance.initials
+        : '?';
+    final avatarBg = AuthState.instance.isAuthenticated
+        ? AppColors.wine
+        : const Color(0xFF94A3B8);
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(26, 26, 26, 26),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFFE6ECF3)),
+        border: Border(top: BorderSide(color: Color(0xFFEEF2F7))),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'PARTICIPAR NO DEBATE',
-            style: TextStyle(
-              color: Color(0xFF8A9AB2),
-              fontSize: 15,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          if (replyToName != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF1F2),
-                borderRadius: BorderRadius.circular(10),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Banner "A responder a @nome"
+            if (widget.replyToName != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                child: Row(
+                  children: [
+                    const Icon(Icons.reply_rounded,
+                        size: 13, color: AppColors.muted),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        'A responder a @${widget.replyToName}',
+                        style: const TextStyle(
+                            color: AppColors.muted, fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: widget.onCancelReply,
+                      child: const Icon(Icons.close_rounded,
+                          size: 15, color: AppColors.muted),
+                    ),
+                  ],
+                ),
               ),
+
+            // Linha principal: avatar + campo + Publicar
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Icon(Icons.reply_rounded, size: 15, color: AppColors.wine),
-                  const SizedBox(width: 6),
+                  AppAvatar(
+                    initials: initials,
+                    size: 34,
+                    bg: avatarBg,
+                    fg: Colors.white,
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      'A responder a @$replyToName',
-                      style: const TextStyle(
-                        color: AppColors.wine,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      child: TextField(
+                        controller: widget.controller,
+                        focusNode: widget.focusNode,
+                        minLines: 1,
+                        maxLines: 5,
+                        style: const TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textMain,
+                            height: 1.4),
+                        decoration: const InputDecoration(
+                          hintText: 'Junta-te à conversa...',
+                          hintStyle: TextStyle(
+                              color: Color(0xFF94A3B8), fontSize: 14),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                        ),
                       ),
                     ),
                   ),
-                  GestureDetector(
-                    onTap: onCancelReply,
-                    child: const Icon(Icons.close_rounded, size: 16, color: AppColors.wine),
-                  ),
+                  if (_hasText) ...[
+                    const SizedBox(width: 12),
+                    GestureDetector(
+                      onTap: widget.onSend,
+                      child: const Text(
+                        'Publicar',
+                        style: TextStyle(
+                          color: AppColors.wine,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
+
+
+
+            const SizedBox(height: 8),
           ],
-          const SizedBox(height: 22),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AppAvatar(
-                initials: AuthState.instance.isAuthenticated
-                    ? AuthState.instance.initials
-                    : '?',
-                size: 44,
-                bg: AuthState.instance.isAuthenticated
-                    ? AppColors.wine
-                    : const Color(0xFFEC4899),
-                fg: Colors.white,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  minLines: 3,
-                  maxLines: 5,
-                  decoration: InputDecoration(
-                    hintText:
-                        'Adicione a sua perspectiva,\ncomentário ou fontes de pesquisa\npara o debate...',
-                    fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFFDDE5EF)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: Color(0xFFDDE5EF)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: AppColors.wine),
-                    ),
-                    hintStyle: const TextStyle(
-                      color: Color(0xFF94A3B8),
-                      fontSize: 16,
-                      height: 1.45,
-                    ),
-                  ),
-                  style: const TextStyle(fontSize: 16, height: 1.45),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          Align(
-            alignment: Alignment.centerRight,
-            child: SizedBox(
-              height: 45,
-              width: 213,
-              child: ElevatedButton.icon(
-                onPressed: onSend,
-                icon: const Icon(Icons.send_outlined, size: 21),
-                label: const Text('Publicar resposta'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF7B001C),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  textStyle: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -806,6 +1031,7 @@ class _RepliesHeader extends StatelessWidget {
 class _CommentCard extends StatefulWidget {
   final ForumComment comment;
   final void Function(ForumComment) onReply;
+  final void Function(ForumComment) onDelete;
   final bool nested;
   final bool isHighlighted;
   final int? highlightedReplyId;
@@ -814,6 +1040,7 @@ class _CommentCard extends StatefulWidget {
   const _CommentCard({
     required this.comment,
     required this.onReply,
+    required this.onDelete,
     this.nested = false,
     this.isHighlighted = false,
     this.highlightedReplyId,
@@ -835,7 +1062,7 @@ class _CommentCardState extends State<_CommentCard> {
     super.initState();
     _likes = widget.comment.likes;
     _liked = widget.comment.isLiked;
-    _repliesExpanded = widget.autoExpandReplies;
+    _repliesExpanded = widget.autoExpandReplies || widget.comment.replies.length <= 2;
     if (widget.isHighlighted) _startHighlight();
   }
 
@@ -859,6 +1086,8 @@ class _CommentCardState extends State<_CommentCard> {
   }
 
   void _showOptions(BuildContext context) {
+    final isOwner = AuthState.instance.user?.id == widget.comment.authorId
+        && widget.comment.authorId > 0;
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -878,6 +1107,16 @@ class _CommentCardState extends State<_CommentCard> {
               ),
             ),
             const SizedBox(height: 4),
+            if (isOwner)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
+                title: const Text('Apagar comentário',
+                    style: TextStyle(color: Color(0xFFDC2626))),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  widget.onDelete(widget.comment);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.flag_outlined, color: Color(0xFF64748B)),
               title: const Text('Reportar comentário'),
@@ -911,7 +1150,221 @@ class _CommentCardState extends State<_CommentCard> {
 
   @override
   Widget build(BuildContext context) {
-    const indent = 46.0; // avatar (36) + gap (10)
+    final comment = widget.comment;
+    final isReply = widget.nested;
+    final avatarSize = isReply ? 32.0 : 40.0;
+
+    // Text content: @mention bold inline for replies
+    final textWidget = isReply && comment.mentionUserName != null
+        ? Text.rich(
+            TextSpan(children: [
+              TextSpan(
+                text: '@${comment.mentionUserName} ',
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  height: 1.5,
+                ),
+              ),
+              TextSpan(
+                text: comment.text,
+                style: const TextStyle(
+                  color: Color(0xFF1E293B),
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+            ]),
+          )
+        : Text(
+            comment.text,
+            style: TextStyle(
+              color: const Color(0xFF1E293B),
+              fontSize: isReply ? 14.0 : 15.0,
+              height: 1.5,
+            ),
+          );
+
+    // Actions: Gosto · Responder · …
+    final actionsRow = Row(
+      children: [
+        GestureDetector(
+          onTap: _toggleLike,
+          child: Text(
+            'Gosto',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: _liked ? const Color(0xFF7B001C) : const Color(0xFF64748B),
+            ),
+          ),
+        ),
+        if (_likes > 0) ...[
+          const SizedBox(width: 4),
+          Text(
+            '$_likes',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: _liked ? const Color(0xFF7B001C) : const Color(0xFF64748B),
+            ),
+          ),
+        ],
+        const SizedBox(width: 16),
+        GestureDetector(
+          onTap: () => widget.onReply(comment),
+          child: const Text(
+            'Responder',
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const Spacer(),
+        GestureDetector(
+          onTap: () => _showOptions(context),
+          child: const Icon(Icons.more_horiz, color: Color(0xFF94A3B8), size: 20),
+        ),
+      ],
+    );
+
+    // Content column (name + text + actions)
+    Widget contentCol = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text.rich(
+          TextSpan(children: [
+            TextSpan(
+              text: comment.authorName,
+              style: const TextStyle(
+                color: Color(0xFF0F172A),
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            TextSpan(
+              text: ' • ${comment.timeAgo}',
+              style: const TextStyle(
+                color: Color(0xFF94A3B8),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 4),
+        textWidget,
+        const SizedBox(height: 8),
+        actionsRow,
+      ],
+    );
+
+    // Replies get a bubble background
+    if (isReply) {
+      contentCol = Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: contentCol,
+      );
+    }
+
+    // Row: avatar + content
+    final commentRow = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AppAvatar(
+          initials: comment.authorInitials,
+          size: avatarSize,
+          bg: comment.avatarBg,
+          fg: comment.avatarFg,
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: contentCol),
+      ],
+    );
+
+    // Thread section: vertical line + toggle + expanded replies (root only)
+    Widget? threadSection;
+    if (!isReply && comment.replies.isNotEmpty) {
+      final firstReply = comment.replies.first;
+      final replyCount = comment.replies.length;
+
+      final toggleRow = GestureDetector(
+        onTap: () => setState(() => _repliesExpanded = !_repliesExpanded),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!_repliesExpanded) ...[
+              AppAvatar(
+                initials: firstReply.authorInitials,
+                size: 20,
+                bg: firstReply.avatarBg,
+                fg: firstReply.avatarFg,
+              ),
+              const SizedBox(width: 8),
+            ],
+            Flexible(
+              child: Text(
+                _repliesExpanded
+                    ? 'Ocultar respostas'
+                    : '${firstReply.authorName} respondeu · $replyCount respostas',
+                style: const TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              _repliesExpanded
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+              size: 16,
+              color: const Color(0xFF64748B),
+            ),
+          ],
+        ),
+      );
+
+      threadSection = Padding(
+        padding: const EdgeInsets.only(top: 8, left: 20),
+        child: Container(
+          decoration: const BoxDecoration(
+            border: Border(
+              left: BorderSide(color: Color(0xFFE2E8F0), width: 2),
+            ),
+          ),
+          padding: const EdgeInsets.only(left: 13),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              toggleRow,
+              if (_repliesExpanded) ...[
+                const SizedBox(height: 10),
+                ...comment.replies.asMap().entries.map((e) => Padding(
+                      padding: EdgeInsets.only(top: e.key == 0 ? 0 : 12),
+                      child: _CommentCard(
+                        comment: e.value,
+                        onReply: widget.onReply,
+                        onDelete: widget.onDelete,
+                        nested: true,
+                        isHighlighted:
+                            e.value.numericId == widget.highlightedReplyId,
+                      ),
+                    )),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 800),
@@ -930,176 +1383,13 @@ class _CommentCardState extends State<_CommentCard> {
         ),
       ),
       child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Linha de cabeçalho: avatar + username • tempo
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            AppAvatar(
-              initials: widget.comment.authorInitials,
-              size: 36,
-              bg: widget.comment.avatarBg,
-              fg: widget.comment.avatarFg,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: widget.comment.authorName,
-                      style: const TextStyle(
-                        color: Color(0xFF0F172A),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    TextSpan(
-                      text: ' • ${widget.comment.timeAgo}',
-                      style: const TextStyle(
-                        color: Color(0xFF94A3B8),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        // Texto e acções alinhados com o username
-        Padding(
-          padding: const EdgeInsets.only(left: indent),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.comment.text,
-                style: const TextStyle(
-                  color: Color(0xFF1E293B),
-                  fontSize: 15,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 10),
-              // Barra de acções: ♥ likes  Responder  ...
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: _toggleLike,
-                    child: Icon(
-                      _liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      size: 18,
-                      color: _liked ? const Color(0xFF7B001C) : const Color(0xFF94A3B8),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$_likes',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: _liked ? const Color(0xFF7B001C) : const Color(0xFF64748B),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  GestureDetector(
-                    onTap: () => widget.onReply(widget.comment),
-                    child: const Text(
-                      'Responder',
-                      style: TextStyle(
-                        color: Color(0xFF64748B),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => _showOptions(context),
-                    child: const Icon(
-                      Icons.more_horiz,
-                      color: Color(0xFF94A3B8),
-                      size: 20,
-                    ),
-                  ),
-                ],
-              ),
-              // Respostas colapsadas
-              if (widget.comment.replies.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                GestureDetector(
-                  onTap: () =>
-                      setState(() => _repliesExpanded = !_repliesExpanded),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _repliesExpanded
-                            ? Icons.remove_circle_outline_rounded
-                            : Icons.add_circle_outline_rounded,
-                        size: 17,
-                        color: const Color(0xFF7B001C),
-                      ),
-                      const SizedBox(width: 7),
-                      Text(
-                        '${widget.comment.replies.length} outras respostas',
-                        style: const TextStyle(
-                          color: Color(0xFF7B001C),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_repliesExpanded) ...[
-                  const SizedBox(height: 14),
-                  IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Container(
-                          width: 2,
-                          margin: const EdgeInsets.only(right: 14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        Expanded(
-                          child: Column(
-                            children: widget.comment.replies
-                                .asMap()
-                                .entries
-                                .map((e) => Padding(
-                                      padding: EdgeInsets.only(
-                                        top: e.key == 0 ? 0 : 16,
-                                      ),
-                                      child: _CommentCard(
-                                        comment: e.value,
-                                        onReply: widget.onReply,
-                                        nested: true,
-                                        isHighlighted: e.value.numericId == widget.highlightedReplyId,
-                                      ),
-                                    ))
-                                .toList(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ],
-          ),
-        ),
-      ],
-      ), // Column
-    ); // AnimatedContainer
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          commentRow,
+          ?threadSection,
+        ],
+      ),
+    );
   }
 }
 

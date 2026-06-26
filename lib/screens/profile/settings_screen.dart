@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../services/theme_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 
@@ -18,136 +19,149 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool publicProfile = true;
   bool ranking = true;
   bool activity = true;
-  String themeMode = 'Claro';
 
   void _toast(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String get _themeModeLabel => switch (ThemeState.instance.mode) {
+    ThemeMode.dark => 'Escuro',
+    ThemeMode.system => 'Sistema',
+    _ => 'Claro',
+  };
+
+  void _cycleTheme() {
+    final next = switch (ThemeState.instance.mode) {
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.system,
+      _ => ThemeMode.light,
+    };
+    ThemeState.instance.setMode(next);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        backgroundColor: AppColors.card,
-        toolbarHeight: 55,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.wine, size: 22),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Definições',
-          style: TextStyle(
-            color: AppColors.wine,
-            fontSize: 14,
-            fontWeight: FontWeight.w900,
+    final c = context.c;
+    return ListenableBuilder(
+      listenable: ThemeState.instance,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: c.bg,
+          appBar: AppBar(
+            backgroundColor: c.card,
+            toolbarHeight: 55,
+            centerTitle: true,
+            leading: IconButton(
+              icon: Icon(Icons.arrow_back, color: c.wine, size: 22),
+              onPressed: () => Navigator.pop(context),
+            ),
+            title: Text(
+              'Definições',
+              style: TextStyle(
+                color: c.wine,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            shape: Border(bottom: BorderSide(color: c.border)),
           ),
-        ),
-        shape: const Border(bottom: BorderSide(color: AppColors.borderLight)),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 18, 12, 26),
-        children: [
-          _SettingsGroup(
-            rows: [
-              _SettingsRow(
-                title: 'Palavra-passe',
-                value: 'Alterar',
-                chevron: true,
-                onTap: () => _toast('Alteração de palavra-passe'),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 26),
+            children: [
+              _SettingsGroup(
+                rows: [
+                  _SettingsRow(
+                    title: 'Palavra-passe',
+                    value: 'Alterar',
+                    chevron: true,
+                    onTap: () => _toast('Alteração de palavra-passe'),
+                  ),
+                  _SettingsRow(
+                    title: 'Email',
+                    value: 'carlos@isptec.co.ao',
+                    chevron: true,
+                    onTap: () => _toast('Gestão de email'),
+                  ),
+                  _SettingsRow(
+                    title: 'Verificação em 2 passos',
+                    toggleValue: twoFactor,
+                    onToggle: (v) => setState(() => twoFactor = v),
+                  ),
+                  _SettingsRow(
+                    title: 'Sessões activas',
+                    value: '1 dispositivo',
+                    chevron: true,
+                    onTap: () => _toast('Sessões activas'),
+                  ),
+                ],
               ),
-              _SettingsRow(
-                title: 'Email',
-                value: 'carlos@isptec.co.ao',
-                chevron: true,
-                onTap: () => _toast('Gestão de email'),
+              const SizedBox(height: 16),
+              const _SectionTitle('NOTIFICAÇÕES'),
+              const SizedBox(height: 8),
+              _SettingsGroup(
+                rows: [
+                  _SettingsRow(
+                    title: 'Novo conteúdo',
+                    toggleValue: newContent,
+                    onToggle: (v) => setState(() => newContent = v),
+                  ),
+                  _SettingsRow(
+                    title: 'Respostas',
+                    toggleValue: replies,
+                    onToggle: (v) => setState(() => replies = v),
+                  ),
+                  _SettingsRow(
+                    title: 'Quiz aprovado',
+                    toggleValue: quizApproved,
+                    onToggle: (v) => setState(() => quizApproved = v),
+                  ),
+                  _SettingsRow(
+                    title: 'Resumo semanal',
+                    toggleValue: weeklySummary,
+                    onToggle: (v) => setState(() => weeklySummary = v),
+                  ),
+                ],
               ),
-              _SettingsRow(
-                title: 'Verificação em 2 passos',
-                toggleValue: twoFactor,
-                onToggle: (v) => setState(() => twoFactor = v),
+              const SizedBox(height: 16),
+              const _SectionTitle('PRIVACIDADE'),
+              const SizedBox(height: 8),
+              _SettingsGroup(
+                rows: [
+                  _SettingsRow(
+                    title: 'Perfil público',
+                    toggleValue: publicProfile,
+                    onToggle: (v) => setState(() => publicProfile = v),
+                  ),
+                  _SettingsRow(
+                    title: 'Aparecer no ranking',
+                    toggleValue: ranking,
+                    onToggle: (v) => setState(() => ranking = v),
+                  ),
+                  _SettingsRow(
+                    title: 'Mostrar actividade',
+                    toggleValue: activity,
+                    onToggle: (v) => setState(() => activity = v),
+                  ),
+                ],
               ),
-              _SettingsRow(
-                title: 'Sessões activas',
-                value: '1 dispositivo',
-                chevron: true,
-                onTap: () => _toast('Sessões activas'),
+              const SizedBox(height: 16),
+              const _SectionTitle('APARÊNCIA'),
+              const SizedBox(height: 8),
+              _SettingsGroup(
+                rows: [
+                  _SettingsRow(
+                    title: 'Tema',
+                    value: _themeModeLabel,
+                    chevron: true,
+                    onTap: _cycleTheme,
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          const _SectionTitle('NOTIFICAÇÕES'),
-          const SizedBox(height: 8),
-          _SettingsGroup(
-            rows: [
-              _SettingsRow(
-                title: 'Novo conteúdo',
-                toggleValue: newContent,
-                onToggle: (v) => setState(() => newContent = v),
-              ),
-              _SettingsRow(
-                title: 'Respostas',
-                toggleValue: replies,
-                onToggle: (v) => setState(() => replies = v),
-              ),
-              _SettingsRow(
-                title: 'Quiz aprovado',
-                toggleValue: quizApproved,
-                onToggle: (v) => setState(() => quizApproved = v),
-              ),
-              _SettingsRow(
-                title: 'Resumo semanal',
-                toggleValue: weeklySummary,
-                onToggle: (v) => setState(() => weeklySummary = v),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const _SectionTitle('PRIVACIDADE'),
-          const SizedBox(height: 8),
-          _SettingsGroup(
-            rows: [
-              _SettingsRow(
-                title: 'Perfil público',
-                toggleValue: publicProfile,
-                onToggle: (v) => setState(() => publicProfile = v),
-              ),
-              _SettingsRow(
-                title: 'Aparecer no ranking',
-                toggleValue: ranking,
-                onToggle: (v) => setState(() => ranking = v),
-              ),
-              _SettingsRow(
-                title: 'Mostrar actividade',
-                toggleValue: activity,
-                onToggle: (v) => setState(() => activity = v),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const _SectionTitle('APARÊNCIA'),
-          const SizedBox(height: 8),
-          _SettingsGroup(
-            rows: [
-              _SettingsRow(
-                title: 'Tema',
-                value: themeMode,
-                chevron: true,
-                onTap: () {
-                  setState(
-                    () => themeMode = themeMode == 'Claro' ? 'Escuro' : 'Claro',
-                  );
-                  _toast('Tema alterado para $themeMode');
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-      bottomNavigationBar: const BottomNavMock(index: 4),
+          bottomNavigationBar: const BottomNavMock(index: 4),
+        );
+      },
     );
   }
 }
@@ -159,8 +173,8 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     title,
-    style: const TextStyle(
-      color: AppColors.muted,
+    style: TextStyle(
+      color: context.c.muted,
       fontSize: 10,
       fontWeight: FontWeight.w900,
       letterSpacing: 1.1,
@@ -174,7 +188,7 @@ class _SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    color: AppColors.card,
+    color: context.c.card,
     child: Column(children: rows),
   );
 }
@@ -198,6 +212,7 @@ class _SettingsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -208,8 +223,8 @@ class _SettingsRow extends StatelessWidget {
             Expanded(
               child: Text(
                 title,
-                style: const TextStyle(
-                  color: AppColors.textMain,
+                style: TextStyle(
+                  color: c.textMain,
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
@@ -218,24 +233,24 @@ class _SettingsRow extends StatelessWidget {
             if (value != null)
               Text(
                 value!,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
+                style: TextStyle(
+                  color: c.textSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
               ),
             if (chevron) ...[
               const SizedBox(width: 8),
-              const Icon(Icons.chevron_right, color: AppColors.muted, size: 18),
+              Icon(Icons.chevron_right, color: c.muted, size: 18),
             ],
             if (toggleValue != null)
               Switch(
                 value: toggleValue!,
                 onChanged: onToggle,
                 activeThumbColor: Colors.white,
-                activeTrackColor: AppColors.wine,
+                activeTrackColor: c.wine,
                 inactiveThumbColor: Colors.white,
-                inactiveTrackColor: const Color(0xFFE6E4E6),
+                inactiveTrackColor: c.border,
               ),
           ],
         ),

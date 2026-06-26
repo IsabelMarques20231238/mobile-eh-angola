@@ -125,7 +125,7 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: context.c.bg,
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(74),
         child: SafeArea(
@@ -165,8 +165,8 @@ class _FeedScreenState extends State<FeedScreen> {
                   height: 7,
                   decoration: BoxDecoration(
                     color: i == _featuredPage
-                        ? AppColors.wine
-                        : AppColors.borderLight,
+                        ? context.c.wine
+                        : context.c.border,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),

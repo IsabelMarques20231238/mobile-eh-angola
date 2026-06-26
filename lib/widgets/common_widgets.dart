@@ -69,10 +69,11 @@ class EhAngolaHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE8EDF3))),
+      decoration: BoxDecoration(
+        color: c.card,
+        border: Border(bottom: BorderSide(color: c.border)),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
@@ -83,22 +84,22 @@ class EhAngolaHeader extends StatelessWidget {
               children: [
                 const _EhHeaderMark(size: 50),
                 const SizedBox(width: 14),
-                const Expanded(
+                Expanded(
                   child: Text.rich(
                     TextSpan(
                       children: [
                         TextSpan(
                           text: 'EH.',
                           style: TextStyle(
-                            color: AppColors.wine,
+                            color: c.wine,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
-                        TextSpan(text: 'Angola'),
+                        const TextSpan(text: 'Angola'),
                       ],
                     ),
                     style: TextStyle(
-                      color: Color(0xFF1F2937),
+                      color: c.textMain,
                       fontSize: 22,
                       fontWeight: FontWeight.w500,
                     ),
@@ -132,12 +133,12 @@ class EhAngolaHeader extends StatelessWidget {
                 controller: searchController,
                 autofocus: true,
                 onChanged: onSearchChanged,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF253044)),
+                style: TextStyle(fontSize: 14, color: c.textMain),
                 decoration: InputDecoration(
                   hintText: 'Pesquisar no forum...',
-                  prefixIcon: const Icon(
+                  prefixIcon: Icon(
                     Icons.search_rounded,
-                    color: Color(0xFF93A1B3),
+                    color: c.muted,
                     size: 22,
                   ),
                   suffixIcon: searchController!.text.isEmpty
@@ -150,27 +151,24 @@ class EhAngolaHeader extends StatelessWidget {
                           },
                         ),
                   filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
+                  fillColor: c.bg,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 12,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFDDE5EF)),
+                    borderSide: BorderSide(color: c.border),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFDDE5EF)),
+                    borderSide: BorderSide(color: c.border),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: AppColors.wine),
+                    borderSide: BorderSide(color: c.wine),
                   ),
-                  hintStyle: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 14,
-                  ),
+                  hintStyle: TextStyle(color: c.muted, fontSize: 14),
                 ),
               ),
             ],
@@ -189,7 +187,7 @@ class EhAngolaScaffold extends StatelessWidget {
   final ValueChanged<String>? onSearchChanged;
   final VoidCallback? onSearchTap;
   final VoidCallback? onNotificationsTap;
-  final Color backgroundColor;
+  final Color? backgroundColor;
 
   const EhAngolaScaffold({
     super.key,
@@ -200,13 +198,13 @@ class EhAngolaScaffold extends StatelessWidget {
     this.onSearchChanged,
     this.onSearchTap,
     this.onNotificationsTap,
-    this.backgroundColor = const Color(0xFFF8FAFC),
+    this.backgroundColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: backgroundColor,
+      backgroundColor: backgroundColor ?? context.c.bg,
       body: SafeArea(
         child: Column(
           children: [
@@ -266,6 +264,7 @@ class _HeaderNotificationButton extends StatelessWidget {
     return ListenableBuilder(
       listenable: NotificationState.instance,
       builder: (context, _) {
+        final c = context.c;
         final count = NotificationState.instance.unreadCount;
         return InkWell(
           onTap: onTap,
@@ -280,13 +279,13 @@ class _HeaderNotificationButton extends StatelessWidget {
                   width: 50,
                   height: 50,
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: c.card,
                     borderRadius: BorderRadius.circular(15),
-                    border: Border.all(color: const Color(0xFFE8EDF3)),
+                    border: Border.all(color: c.border),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.notifications_none_rounded,
-                    color: AppColors.wine,
+                    color: c.wine,
                     size: 23,
                   ),
                 ),
@@ -334,6 +333,7 @@ class _HeaderIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(15),
@@ -341,15 +341,15 @@ class _HeaderIconButton extends StatelessWidget {
         width: 50,
         height: 50,
         decoration: BoxDecoration(
-          color: active ? AppColors.winePill : const Color(0xFFF8FAFC),
+          color: active ? c.winePill : c.bg,
           borderRadius: BorderRadius.circular(15),
           border: Border.all(
-            color: active ? AppColors.winePill : const Color(0xFFE8EDF3),
+            color: active ? c.winePill : c.border,
           ),
         ),
         child: Icon(
           icon,
-          color: active ? AppColors.wine : const Color(0xFF334155),
+          color: active ? c.wine : c.textSecondary,
           size: 23,
         ),
       ),
@@ -642,19 +642,20 @@ class Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
-        color: selected ? color : AppColors.surface,
+        color: selected ? color : c.bg,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: selected ? color : AppColors.borderLight),
+        border: Border.all(color: selected ? color : c.border),
       ),
       child: Text(
         text,
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,
-          color: selected ? Colors.white : AppColors.textSecondary,
+          color: selected ? Colors.white : c.textSecondary,
         ),
       ),
     );
@@ -678,15 +679,17 @@ class BottomNavMock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return BottomNavigationBar(
       currentIndex: index,
+      backgroundColor: c.card,
       onTap: (i) {
         final route = _routes[i];
         if (ModalRoute.of(context)?.settings.name == route) return;
         Navigator.pushReplacementNamed(context, route);
       },
-      selectedItemColor: AppColors.primary,
-      unselectedItemColor: AppColors.textMuted,
+      selectedItemColor: c.wine,
+      unselectedItemColor: c.muted,
       showSelectedLabels: true,
       showUnselectedLabels: true,
       selectedFontSize: 11,

@@ -97,7 +97,7 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
         if (!didPop) _leaveForum(context);
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
+        backgroundColor: context.c.bg,
         body: SafeArea(
           child: Column(
             children: [
@@ -110,7 +110,7 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
               ),
               Container(
                 width: double.infinity,
-                color: Colors.white,
+                color: context.c.card,
                 padding: const EdgeInsets.fromLTRB(22, 12, 22, 14),
                 child: _ForumChipBar(
                   labels: _chips,
@@ -156,16 +156,20 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
                       else if (_topics.isEmpty)
                         const _EmptyForumState()
                       else
-                        ..._topics.map(
-                          (topic) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _TopicCard(
-                              key: ValueKey(topic.id > 0 ? topic.id : topic.title),
-                              topic: topic,
-                              onTap: () => _openTopic(topic),
-                            ),
-                          ),
-                        ),
+                        ..._topics.map((topic) {
+                            final isAuthor = topic.authorId > 0 &&
+                                topic.authorId == AuthState.instance.user?.id;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _TopicCard(
+                                key: ValueKey(topic.id > 0 ? topic.id : topic.title),
+                                topic: topic,
+                                onTap: () => _openTopic(topic),
+                                onEdit: isAuthor ? () => _editTopic(topic) : null,
+                                onDelete: isAuthor ? () => _deleteTopic(topic) : null,
+                              ),
+                            );
+                          }),
                     ],
                   ),
                 ),
@@ -196,6 +200,60 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
       context,
       AppRoutes.bottomSlideRoute(builder: (_) => const CriarTopicoScreen()),
     );
+  }
+
+  Future<void> _editTopic(ForumTopic topic) async {
+    try {
+      final detail = await ForumService.instance.getTopicDetail(topic.id);
+      if (!mounted) return;
+      final refreshed = await Navigator.push<bool>(
+        context,
+        AppRoutes.bottomSlideRoute(
+          builder: (_) => CriarTopicoScreen(
+            editTopic: detail.topic ?? topic,
+            editBody: detail.body,
+            editTags: detail.tags,
+          ),
+        ),
+      );
+      if (refreshed == true && mounted) _loadTopics();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
+  Future<void> _deleteTopic(ForumTopic topic) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apagar tópico'),
+        content: const Text(
+          'Tens a certeza que queres apagar este tópico? Esta acção é irreversível.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
+            child: const Text('Apagar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ForumService.instance.deleteTopic(topic.id);
+      if (mounted) setState(() => _topics.removeWhere((t) => t.id == topic.id));
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   void _leaveForum(BuildContext context) {
@@ -360,6 +418,7 @@ class _ForumChipBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return SizedBox(
       height: 46,
       child: ListView.separated(
@@ -377,24 +436,20 @@ class _ForumChipBar extends StatelessWidget {
               height: 46,
               padding: const EdgeInsets.symmetric(horizontal: 18),
               decoration: BoxDecoration(
-                color: active ? AppColors.wine : Colors.white,
+                color: active ? c.wine : c.card,
                 borderRadius: BorderRadius.circular(23),
                 border: Border.all(
-                  color: active ? AppColors.wine : const Color(0xFF64748B),
+                  color: active ? c.wine : c.border,
                 ),
               ),
               child: Row(
                 children: [
-                  Icon(
-                    icon,
-                    size: 19,
-                    color: active ? Colors.white : const Color(0xFF64748B),
-                  ),
+                  Icon(icon, size: 19, color: active ? Colors.white : c.muted),
                   const SizedBox(width: 8),
                   Text(
                     labels[index],
                     style: TextStyle(
-                      color: active ? Colors.white : const Color(0xFF334155),
+                      color: active ? Colors.white : c.textMain,
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
                     ),
@@ -412,8 +467,16 @@ class _ForumChipBar extends StatelessWidget {
 class _TopicCard extends StatefulWidget {
   final ForumTopic topic;
   final VoidCallback onTap;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
-  const _TopicCard({super.key, required this.topic, required this.onTap});
+  const _TopicCard({
+    super.key,
+    required this.topic,
+    required this.onTap,
+    this.onEdit,
+    this.onDelete,
+  });
 
   @override
   State<_TopicCard> createState() => _TopicCardState();
@@ -456,20 +519,66 @@ class _TopicCardState extends State<_TopicCard> {
     }
   }
 
+  void _showTopicOptions(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFCBD5E1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (widget.onEdit != null)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined, color: Color(0xFF64748B)),
+                title: const Text('Editar tópico'),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  widget.onEdit!();
+                },
+              ),
+            if (widget.onDelete != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
+                title: const Text('Apagar tópico',
+                    style: TextStyle(color: Color(0xFFDC2626))),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  widget.onDelete!();
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     final topic = widget.topic;
     final isPrivate = topic.visibility == TopicVisibility.privado;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: c.card,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE6ECF3)),
-        boxShadow: const [
+        border: Border.all(color: c.border),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x080F172A),
+            color: const Color(0xFF0F172A).withValues(alpha: .06),
             blurRadius: 8,
-            offset: Offset(0, 3),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -495,12 +604,23 @@ class _TopicCardState extends State<_TopicCard> {
                       const Spacer(),
                       Text(
                         topic.timeAgo,
-                        style: const TextStyle(
-                          color: Color(0xFF94A3B8),
+                        style: TextStyle(
+                          color: c.muted,
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
+                      if (widget.onEdit != null || widget.onDelete != null) ...[
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => _showTopicOptions(context),
+                          child: Icon(
+                            Icons.more_horiz,
+                            size: 20,
+                            color: c.muted,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -518,8 +638,8 @@ class _TopicCardState extends State<_TopicCard> {
                           topic.authorName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF0F172A),
+                          style: TextStyle(
+                            color: c.textMain,
                             fontSize: 13,
                             height: 1.2,
                             fontWeight: FontWeight.w900,
@@ -535,8 +655,8 @@ class _TopicCardState extends State<_TopicCard> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: isPrivate || topic.isPinned
-                          ? const Color(0xFF0F172A)
-                          : _titleColor(topic.category),
+                          ? c.textMain
+                          : _titleColor(topic.category, c),
                       fontSize: 17,
                       height: 1.28,
                       fontWeight: FontWeight.w900,
@@ -547,8 +667,8 @@ class _TopicCardState extends State<_TopicCard> {
                     topic.excerpt,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF64748B),
+                    style: TextStyle(
+                      color: c.textSecondary,
                       fontSize: 13,
                       height: 1.4,
                       fontWeight: FontWeight.w500,
@@ -583,7 +703,8 @@ class _TopicCardState extends State<_TopicCard> {
     );
   }
 
-  Color _titleColor(TopicCategory category) {
+  Color _titleColor(TopicCategory category, AppAdaptiveColors c) {
+    if (Theme.of(context).brightness == Brightness.dark) return c.textMain;
     return switch (category) {
       TopicCategory.economia => const Color(0xFF6F2435),
       TopicCategory.petroleo => const Color(0xFF6F2435),
@@ -653,14 +774,15 @@ class _VisibilityBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     final isPrivate = visibility == TopicVisibility.privado;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: isPrivate ? const Color(0xFFFFF1F2) : const Color(0xFFF8FAFC),
+        color: isPrivate ? const Color(0xFFFFF1F2) : c.bg,
         borderRadius: BorderRadius.circular(7),
         border: Border.all(
-          color: isPrivate ? const Color(0xFFFFD5DF) : const Color(0xFFE8EDF3),
+          color: isPrivate ? const Color(0xFFFFD5DF) : c.border,
         ),
       ),
       child: Row(
@@ -677,9 +799,7 @@ class _VisibilityBadge extends StatelessWidget {
           Text(
             isPrivate ? 'Privado' : 'Público',
             style: TextStyle(
-              color: isPrivate
-                  ? const Color(0xFFE11D48)
-                  : const Color(0xFF94A3B8),
+              color: isPrivate ? const Color(0xFFE11D48) : c.muted,
               fontSize: 12,
               fontWeight: FontWeight.w900,
             ),
@@ -791,22 +911,23 @@ class _ForumErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return Container(
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: c.card,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE6ECF3)),
+        border: Border.all(color: c.border),
       ),
       child: Column(
         children: [
-          const Icon(Icons.wifi_off_rounded, color: Color(0xFF94A3B8), size: 44),
+          Icon(Icons.wifi_off_rounded, color: c.muted, size: 44),
           const SizedBox(height: 12),
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Color(0xFF334155),
+            style: TextStyle(
+              color: c.textMain,
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
@@ -814,7 +935,7 @@ class _ForumErrorState extends StatelessWidget {
           const SizedBox(height: 16),
           TextButton(
             onPressed: onRetry,
-            style: TextButton.styleFrom(foregroundColor: AppColors.wine),
+            style: TextButton.styleFrom(foregroundColor: c.wine),
             child: const Text('Tentar novamente', style: TextStyle(fontWeight: FontWeight.w800)),
           ),
         ],
@@ -828,21 +949,22 @@ class _EmptyForumState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return Container(
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: c.card,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE6ECF3)),
+        border: Border.all(color: c.border),
       ),
-      child: const Column(
+      child: Column(
         children: [
-          Icon(Icons.search_off_rounded, color: Color(0xFF94A3B8), size: 44),
-          SizedBox(height: 12),
+          Icon(Icons.search_off_rounded, color: c.muted, size: 44),
+          const SizedBox(height: 12),
           Text(
             'Nenhum tópico encontrado.',
             style: TextStyle(
-              color: Color(0xFF334155),
+              color: c.textMain,
               fontSize: 16,
               fontWeight: FontWeight.w800,
             ),

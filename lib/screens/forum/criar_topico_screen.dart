@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:image_picker/image_picker.dart';
 import '../../models/forum_models.dart';
 import '../../services/api_client.dart';
@@ -70,6 +71,7 @@ class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
       .take(10)
       .toList();
 
+
   Future<void> _fetchTags(String query) async {
     setState(() => _tagsLoading = true);
     try {
@@ -100,6 +102,7 @@ class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
       _titleController.text = t.title;
       _descController.text = widget.editBody ?? t.excerpt;
       _imageUrlController.text = t.imageUrl ?? '';
+      _validatedImageUrl = t.imageUrl?.isNotEmpty == true ? t.imageUrl : null;
       _isPrivate = t.visibility == TopicVisibility.privado;
       _readOnly = t.isReadOnly;
       _hashTags = List<String>.from(
@@ -346,94 +349,140 @@ class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
                     )
                   else
                     _ImageUploadBox(onTap: () => _pickImage(context)),
-                  const SizedBox(height: 10),
-                  ImagePreviewField(
-                    controller: _imageUrlController,
-                    showInlinePreview: false,
-                    onValidUrl: (url) => setState(() => _validatedImageUrl = url),
-                    onInvalidUrl: () => setState(() => _validatedImageUrl = null),
-                  ),
+                  if (_validatedImageUrl == null && _selectedImage == null) ...[
+                    const SizedBox(height: 10),
+                    ImagePreviewField(
+                      controller: _imageUrlController,
+                      showInlinePreview: false,
+                      onValidUrl: (url) => setState(() => _validatedImageUrl = url),
+                      onInvalidUrl: () => setState(() => _validatedImageUrl = null),
+                    ),
+                  ],
                   const SizedBox(height: 20),
 
                   // ── Hashtags ─────────────────────────────────────
                   _label('Hashtags'),
                   const SizedBox(height: 8),
+                  // Campo + botão +
                   Container(
                     decoration: BoxDecoration(
                       border: Border.all(color: AppColors.borderLight),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: TextField(
-                      controller: _keywordController,
-                      textInputAction: TextInputAction.done,
-                      onChanged: _onTagQueryChanged,
-                      onSubmitted: (_) => _addHashTag(),
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(
-                          Icons.label_outline_rounded,
-                          color: AppColors.muted,
-                          size: 18,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const SizedBox(width: 12),
+                        const Icon(Icons.label_outline_rounded,
+                            color: AppColors.muted, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _keywordController,
+                            textInputAction: TextInputAction.done,
+                            onChanged: _onTagQueryChanged,
+                            onSubmitted: (_) => _addHashTag(),
+                            decoration: const InputDecoration(
+                              hintText: 'Escreve uma hashtag...',
+                              hintStyle: TextStyle(
+                                  color: AppColors.muted, fontSize: 13),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                              contentPadding:
+                                  EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            style: const TextStyle(
+                                fontSize: 13, color: AppColors.textMain),
+                          ),
                         ),
-                        hintText: 'Adiciona Hashtags separadas por vírgula',
-                        hintStyle: TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 13,
+                        GestureDetector(
+                          onTap: _addHashTag,
+                          child: Container(
+                            margin: const EdgeInsets.all(6),
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: AppColors.wine,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.add_rounded,
+                                color: Colors.white, size: 18),
+                          ),
                         ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        filled: false,
-                        contentPadding: EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textMain,
-                      ),
+                      ],
                     ),
                   ),
+                  // Tags já adicionadas
                   if (_hashTags.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 6,
                       runSpacing: 6,
                       children: _hashTags
-                          .map(
-                            (tag) => _HashTagChip(
-                              label: tag,
-                              onRemove: () => setState(() {
-                                _hashTags.remove(tag);
-                                _tagIdMap.remove(tag);
-                              }),
-                            ),
-                          )
+                          .map((tag) => _HashTagChip(
+                                label: tag,
+                                onRemove: () => setState(() {
+                                  _hashTags.remove(tag);
+                                  _tagIdMap.remove(tag);
+                                }),
+                              ))
                           .toList(),
                     ),
                   ],
+                  // Sugestões
                   if (_tagsLoading)
                     const Padding(
                       padding: EdgeInsets.only(top: 10),
-                      child: LinearProgressIndicator(color: AppColors.wine, minHeight: 2),
+                      child: LinearProgressIndicator(
+                          color: AppColors.wine, minHeight: 2),
                     )
                   else if (_visibleSuggestions.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _visibleSuggestions
-                          .map(
-                            (tag) => ActionChip(
-                              label: Text('#${tag.name}'),
-                              onPressed: () => _addHashTag('#${tag.name}', tag),
-                              labelStyle: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.wine,
-                              ),
-                              side: const BorderSide(color: AppColors.borderLight),
-                              backgroundColor: AppColors.wineBg,
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.borderLight),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'SUGESTÕES DE HASHTAGS:',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.muted,
+                              letterSpacing: 0.5,
                             ),
-                          )
-                          .toList(),
+                          ),
+                          const SizedBox(height: 10),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: _visibleSuggestions
+                                  .map((tag) => GestureDetector(
+                                        onTap: () =>
+                                            _addHashTag('#${tag.name}', tag),
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(right: 18),
+                                          child: Text(
+                                            '#${tag.name}',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              color: AppColors.textMain,
+                                            ),
+                                          ),
+                                        ),
+                                      ))
+                                  .toList(),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                   const SizedBox(height: 28),
@@ -720,7 +769,7 @@ class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
         showAppToast(context, 'Tópico actualizado!');
         Navigator.pop(context, true);
       } else {
-        await ForumService.instance.createTopic(
+        final result = await ForumService.instance.createTopic(
           title: title,
           body: body,
           categoryId: _selectedCategory!.id,
@@ -735,7 +784,10 @@ class _CriarTopicoScreenState extends State<CriarTopicoScreen> {
           showDialog<void>(
             context: context,
             barrierDismissible: false,
-            builder: (_) => const _PrivateForumCreatedDialog(),
+            builder: (_) => _PrivateForumCreatedDialog(
+              topicId: result.id,
+              joinCode: result.joinCode,
+            ),
           );
         } else {
           showAppToast(context, 'Tópico criado!');
@@ -1320,7 +1372,13 @@ class _HashTagChip extends StatelessWidget {
 // ── Diálogo tópico privado ──────────────────────────────────────────────────
 
 class _PrivateForumCreatedDialog extends StatefulWidget {
-  const _PrivateForumCreatedDialog();
+  final int topicId;
+  final String? joinCode;
+
+  const _PrivateForumCreatedDialog({
+    required this.topicId,
+    this.joinCode,
+  });
 
   @override
   State<_PrivateForumCreatedDialog> createState() =>
@@ -1329,26 +1387,95 @@ class _PrivateForumCreatedDialog extends StatefulWidget {
 
 class _PrivateForumCreatedDialogState
     extends State<_PrivateForumCreatedDialog> {
-  final _memberController = TextEditingController();
-  final List<String> _members = ['ana.paula@...'];
+  final _searchController = TextEditingController();
+  final List<UserSearchResult> _invitees = [];
+  List<UserSearchResult> _suggestions = [];
+  bool _loadingSuggestions = false;
+  bool _isSending = false;
+  Timer? _debounce;
 
   @override
   void dispose() {
-    _memberController.dispose();
+    _debounce?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
-  void _addMember() {
-    final value = _memberController.text.trim();
-    if (value.isEmpty) return;
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    final query = value.trim();
+    if (query.isEmpty) {
+      setState(() => _suggestions = []);
+      return;
+    }
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _fetchSuggestions(query),
+    );
+  }
+
+  Future<void> _fetchSuggestions(String query) async {
+    setState(() => _loadingSuggestions = true);
+    try {
+      final results = await ForumService.instance.searchUsers(
+        query,
+        topicId: widget.topicId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _suggestions = results
+            .where((u) => !_invitees.any((inv) => inv.id == u.id))
+            .toList();
+      });
+    } on ApiException {
+      if (mounted) setState(() => _suggestions = []);
+    } finally {
+      if (mounted) setState(() => _loadingSuggestions = false);
+    }
+  }
+
+  void _addUser(UserSearchResult user) {
     setState(() {
-      _members.add(value);
-      _memberController.clear();
+      _invitees.add(user);
+      _suggestions = [];
+      _searchController.clear();
     });
+  }
+
+  void _addFirstSuggestion() {
+    if (_suggestions.isNotEmpty) {
+      _addUser(_suggestions.first);
+    } else if (_searchController.text.trim().isNotEmpty) {
+      _fetchSuggestions(_searchController.text.trim());
+    }
+  }
+
+  Future<void> _sendInvites() async {
+    if (_invitees.isEmpty) {
+      Navigator.pop(context);
+      Navigator.pop(context);
+      return;
+    }
+    setState(() => _isSending = true);
+    try {
+      await ForumService.instance
+          .inviteUsers(widget.topicId, _invitees.map((u) => u.id).toList());
+      if (!mounted) return;
+      showAppToast(context, 'Convites enviados com sucesso!');
+      Navigator.pop(context);
+      Navigator.pop(context);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _isSending = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final code = widget.joinCode ?? '—';
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
       backgroundColor: Colors.white,
@@ -1361,6 +1488,7 @@ class _PrivateForumCreatedDialogState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Cabeçalho ────────────────────────────────────────
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1371,11 +1499,7 @@ class _PrivateForumCreatedDialogState
                       color: Color(0xFFA9E6B4),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.check,
-                      size: 18,
-                      color: Color(0xFF137A35),
-                    ),
+                    child: const Icon(Icons.check, size: 18, color: Color(0xFF137A35)),
                   ),
                   const SizedBox(width: 10),
                   const Expanded(
@@ -1384,19 +1508,12 @@ class _PrivateForumCreatedDialogState
                       children: [
                         Text(
                           'Tópico privado criado!',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textMain,
-                          ),
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.textMain),
                         ),
                         SizedBox(height: 2),
                         Text(
                           'Partilha o acesso com os membros.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textSecondary,
-                          ),
+                          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
                         ),
                       ],
                     ),
@@ -1404,14 +1521,10 @@ class _PrivateForumCreatedDialogState
                 ],
               ),
               const SizedBox(height: 17),
+              // ── Código de acesso ─────────────────────────────────
               const Text(
                 'CÓDIGO DE ACESSO',
-                style: TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textSecondary,
-                  letterSpacing: 0.4,
-                ),
+                style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppColors.textSecondary, letterSpacing: 0.4),
               ),
               const SizedBox(height: 8),
               Container(
@@ -1424,50 +1537,36 @@ class _PrivateForumCreatedDialogState
                 ),
                 child: Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'EH-4F2K-9R',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.wine,
-                          letterSpacing: 0.6,
-                        ),
+                        code,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.wine, letterSpacing: 0.6),
                       ),
                     ),
                     SizedBox(
                       height: 22,
                       child: TextButton(
-                        onPressed: () => showAppToast(context, 'Código copiado!'),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: code));
+                          showAppToast(context, 'Código copiado!');
+                        },
                         style: TextButton.styleFrom(
                           backgroundColor: AppColors.winePill,
                           foregroundColor: AppColors.wine,
                           padding: const EdgeInsets.symmetric(horizontal: 9),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(4),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                         ),
-                        child: const Text(
-                          'Copiar',
-                          style: TextStyle(
-                            fontSize: 8,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
+                        child: const Text('Copiar', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800)),
                       ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 17),
+              // ── Convidar membros ─────────────────────────────────
               const Text(
                 'CONVIDAR MEMBROS',
-                style: TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textSecondary,
-                  letterSpacing: 0.4,
-                ),
+                style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: AppColors.textSecondary, letterSpacing: 0.4),
               ),
               const SizedBox(height: 8),
               Row(
@@ -1476,17 +1575,16 @@ class _PrivateForumCreatedDialogState
                     child: SizedBox(
                       height: 34,
                       child: TextField(
-                        controller: _memberController,
+                        controller: _searchController,
+                        enabled: !_isSending,
+                        onChanged: _onSearchChanged,
                         decoration: const InputDecoration(
-                          hintText: 'Email do membro...',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 9,
-                          ),
+                          hintText: 'Nome ou email do membro...',
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 9),
                         ),
                         style: const TextStyle(fontSize: 11),
                         textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _addMember(),
+                        onSubmitted: (_) => _addFirstSuggestion(),
                       ),
                     ),
                   ),
@@ -1495,55 +1593,117 @@ class _PrivateForumCreatedDialogState
                     width: 58,
                     height: 34,
                     child: ElevatedButton(
-                      onPressed: _addMember,
+                      onPressed: _isSending ? null : _addFirstSuggestion,
                       style: ElevatedButton.styleFrom(
                         padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                        backgroundColor: AppColors.wine,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                       ),
-                      child: const Text(
-                        'Adicionar',
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
+                      child: const Text('Adicionar', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800)),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: _members
-                    .map(
-                      (m) => _InviteChip(
-                        label: m,
-                        onRemove: () => setState(() => _members.remove(m)),
-                      ),
-                    )
-                    .toList(),
-              ),
+              // Sugestões
+              if (_loadingSuggestions)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: LinearProgressIndicator(color: AppColors.wine, minHeight: 2),
+                )
+              else if (_suggestions.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(top: 4),
+                  constraints: const BoxConstraints(maxHeight: 160),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.borderLight),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x0F000000), blurRadius: 8, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: _suggestions.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1, color: AppColors.borderLight),
+                    itemBuilder: (_, i) {
+                      final u = _suggestions[i];
+                      return InkWell(
+                        onTap: () => _addUser(u),
+                        borderRadius: i == 0
+                            ? const BorderRadius.vertical(top: Radius.circular(8))
+                            : i == _suggestions.length - 1
+                                ? const BorderRadius.vertical(bottom: Radius.circular(8))
+                                : BorderRadius.zero,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 13,
+                                backgroundImage: u.avatarUrl != null ? NetworkImage(u.avatarUrl!) : null,
+                                backgroundColor: AppColors.winePill,
+                                child: u.avatarUrl == null
+                                    ? Text(
+                                        u.name.isNotEmpty ? u.name[0].toUpperCase() : '?',
+                                        style: const TextStyle(fontSize: 10, color: AppColors.wine, fontWeight: FontWeight.w800),
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(u.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textMain)),
+                                    Text(u.email, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary), overflow: TextOverflow.ellipsis),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.add_circle_outline, size: 16, color: AppColors.wine),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              if (_invitees.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: _invitees
+                      .map((u) => _InviteChip(
+                            user: u,
+                            onRemove: () => setState(() => _invitees.remove(u)),
+                          ))
+                      .toList(),
+                ),
+              ],
               const SizedBox(height: 20),
+              // ── Botão enviar ─────────────────────────────────────
               SizedBox(
                 height: 26,
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    Navigator.pop(context);
-                  },
+                  onPressed: _isSending ? null : _sendInvites,
                   style: ElevatedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(3),
-                    ),
+                    backgroundColor: AppColors.wine,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
                   ),
-                  child: const Text(
-                    'Enviar convites',
-                    style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
-                  ),
+                  child: _isSending
+                      ? const SizedBox(
+                          width: 12, height: 12,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : Text(
+                          _invitees.isEmpty ? 'Saltar' : 'Enviar convites',
+                          style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w800),
+                        ),
                 ),
               ),
             ],
@@ -1555,13 +1715,16 @@ class _PrivateForumCreatedDialogState
 }
 
 class _InviteChip extends StatelessWidget {
-  final String label;
+  final UserSearchResult user;
   final VoidCallback onRemove;
 
-  const _InviteChip({required this.label, required this.onRemove});
+  const _InviteChip({required this.user, required this.onRemove});
 
   @override
   Widget build(BuildContext context) {
+    final label = user.email.length > 15
+        ? '${user.email.substring(0, 12)}..'
+        : user.email;
     return Container(
       height: 22,
       padding: const EdgeInsets.fromLTRB(5, 2, 7, 2),
@@ -1572,20 +1735,21 @@ class _InviteChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const CircleAvatar(
+          CircleAvatar(
             radius: 7,
-            backgroundImage: NetworkImage(
-              'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=64&h=64&fit=crop&crop=face',
-            ),
+            backgroundImage: user.avatarUrl != null
+                ? NetworkImage(user.avatarUrl!)
+                : null,
+            backgroundColor: AppColors.winePill,
+            child: user.avatarUrl == null
+                ? Text(
+                    user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                    style: const TextStyle(fontSize: 7, color: AppColors.wine, fontWeight: FontWeight.w800),
+                  )
+                : null,
           ),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 10,
-              color: AppColors.textSecondary,
-            ),
-          ),
+          Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
           const SizedBox(width: 2),
           GestureDetector(
             onTap: onRemove,

@@ -99,6 +99,38 @@ class ForumTopic {
     this.permissions = const ForumTopicPermissions(),
   });
 
+  ForumTopic copyWith({
+    String? title,
+    int? likes,
+    bool? isLiked,
+    bool? isReadOnly,
+    int? comments,
+  }) =>
+      ForumTopic(
+        id: id,
+        authorId: authorId,
+        categoryId: categoryId,
+        title: title ?? this.title,
+        excerpt: excerpt,
+        authorName: authorName,
+        authorInitials: authorInitials,
+        authorRole: authorRole,
+        category: category,
+        visibility: visibility,
+        timeAgo: timeAgo,
+        comments: comments ?? this.comments,
+        likes: likes ?? this.likes,
+        isPinned: isPinned,
+        isLiked: isLiked ?? this.isLiked,
+        isSaved: isSaved,
+        hasAccess: hasAccess,
+        isReadOnly: isReadOnly ?? this.isReadOnly,
+        imageUrl: imageUrl,
+        avatarBg: avatarBg,
+        avatarFg: avatarFg,
+        permissions: permissions,
+      );
+
   factory ForumTopic.fromApiJson(Map<String, dynamic> json) {
     final authorJson = json['author'] ?? json['user'];
     final author = authorJson is Map<String, dynamic> ? authorJson : const <String, dynamic>{};
@@ -154,6 +186,9 @@ class ForumTopic {
 class ForumComment {
   final String id;
   final int numericId;
+  final int authorId;
+  final int? parentId;
+  final String? mentionUserName;
   final String authorName;
   final String authorInitials;
   final Color avatarBg;
@@ -167,6 +202,9 @@ class ForumComment {
   const ForumComment({
     required this.id,
     this.numericId = 0,
+    this.authorId = 0,
+    this.parentId,
+    this.mentionUserName,
     required this.authorName,
     required this.authorInitials,
     required this.avatarBg,
@@ -177,6 +215,28 @@ class ForumComment {
     this.isLiked = false,
     this.replies = const [],
   });
+
+  ForumComment copyWith({
+    List<ForumComment>? replies,
+    int? likes,
+    bool? isLiked,
+  }) =>
+      ForumComment(
+        id: id,
+        numericId: numericId,
+        authorId: authorId,
+        parentId: parentId,
+        mentionUserName: mentionUserName,
+        authorName: authorName,
+        authorInitials: authorInitials,
+        avatarBg: avatarBg,
+        avatarFg: avatarFg,
+        text: text,
+        timeAgo: timeAgo,
+        likes: likes ?? this.likes,
+        isLiked: isLiked ?? this.isLiked,
+        replies: replies ?? this.replies,
+      );
 
   factory ForumComment.fromApiJson(Map<String, dynamic> json) {
     final authorJson = json['author'];
@@ -198,10 +258,15 @@ class ForumComment {
         ? repliesRaw.whereType<Map<String, dynamic>>().map(ForumComment.fromApiJson).toList()
         : const <ForumComment>[];
     final numericId = _parseInt(json['id']);
+    final mentionUserJson = json['mention_user'];
+    final mentionUserName = mentionUserJson is Map ? mentionUserJson['name']?.toString() : null;
 
     return ForumComment(
       id: numericId.toString(),
       numericId: numericId,
+      authorId: authorId,
+      parentId: json['parent_id'] != null ? _parseInt(json['parent_id']) : null,
+      mentionUserName: mentionUserName,
       authorName: authorName,
       authorInitials: initials,
       avatarBg: pal[0],

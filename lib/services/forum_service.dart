@@ -47,6 +47,31 @@ class ForumCommentRef {
   const ForumCommentRef({required this.id, required this.topicId, this.parentId});
 }
 
+class CreateTopicResult {
+  final int id;
+  final String? joinCode;
+  const CreateTopicResult({required this.id, this.joinCode});
+}
+
+class UserSearchResult {
+  final int id;
+  final String name;
+  final String email;
+  final String? avatarUrl;
+  const UserSearchResult({
+    required this.id,
+    required this.name,
+    required this.email,
+    this.avatarUrl,
+  });
+  factory UserSearchResult.fromJson(Map<String, dynamic> json) => UserSearchResult(
+        id: _parseInt(json['id']),
+        name: json['name']?.toString() ?? '',
+        email: json['email']?.toString() ?? '',
+        avatarUrl: json['avatar_url']?.toString(),
+      );
+}
+
 class ForumService {
   ForumService._();
   static final ForumService instance = ForumService._();
@@ -124,6 +149,12 @@ class ForumService {
     );
   }
 
+  // ── DELETE /forum/topics/{id} ─────────────────────────────────────────────
+
+  Future<void> deleteTopic(int topicId) async {
+    await _api.delete('/forum/topics/$topicId', authenticated: true);
+  }
+
   // ── POST /forum/topics/{id}/like ────────────────────────────────────────────
 
   Future<LikeResult> likeTopic(int id) async {
@@ -132,6 +163,20 @@ class ForumService {
       liked: data['liked'] == true,
       likesCount: _parseInt(data['likes_count']),
     );
+  }
+
+  // ── GET /forum/topics?filter=saved ─────────────────────────────────────────
+
+  Future<List<ForumTopic>> getSavedTopics() async {
+    final data = await _api.get(
+      '/forum/topics',
+      query: {'filter': 'saved'},
+      authenticated: true,
+    );
+    return payloadList(data)
+        .whereType<Map<String, dynamic>>()
+        .map(ForumTopic.fromApiJson)
+        .toList();
   }
 
   // ── POST /forum/topics/{id}/bookmark ───────────────────────────────────────
@@ -208,6 +253,12 @@ class ForumService {
     );
   }
 
+  // ── DELETE /forum/comments/{id} ────────────────────────────────────────────
+
+  Future<void> deleteComment(int commentId) async {
+    await _api.delete('/forum/comments/$commentId', authenticated: true);
+  }
+
   // ── POST /forum/comments/{id}/like ─────────────────────────────────────────
 
   Future<LikeResult> likeComment(int id) async {
@@ -253,7 +304,7 @@ class ForumService {
 
   // ── POST /forum/topics ─────────────────────────────────────────────────────
 
-  Future<int> createTopic({
+  Future<CreateTopicResult> createTopic({
     required String title,
     required String body,
     required int categoryId,
@@ -280,7 +331,31 @@ class ForumService {
       payload['tags'] = newTagNames.map((t) => t.replaceFirst('#', '')).toList();
     }
     final data = await _api.post('/forum/topics', body: payload, authenticated: true);
-    return _parseInt(data['id']);
+    return CreateTopicResult(
+      id: _parseInt(data['id']),
+      joinCode: data['join_code']?.toString(),
+    );
+  }
+
+  // ── GET /users/search ──────────────────────────────────────────────────────
+
+  Future<List<UserSearchResult>> searchUsers(String query, {int? topicId}) async {
+    final q = <String, String?>{'q': query};
+    if (topicId != null) q['topic_id'] = topicId.toString();
+    final data = await _api.get('/users/search', query: q, authenticated: true);
+    final list = data is List ? data : (data is Map ? data['data'] : null);
+    if (list is! List) return const [];
+    return list.whereType<Map<String, dynamic>>().map(UserSearchResult.fromJson).toList();
+  }
+
+  // ── POST /forum/topics/{id}/invite ─────────────────────────────────────────
+
+  Future<void> inviteUsers(int topicId, List<int> userIds) async {
+    await _api.post(
+      '/forum/topics/$topicId/invite',
+      body: {'user_ids': userIds},
+      authenticated: true,
+    );
   }
 
   // ── PUT /forum/topics/{id} ─────────────────────────────────────────────────
