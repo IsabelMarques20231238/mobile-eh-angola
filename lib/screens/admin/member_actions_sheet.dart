@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 import 'member_activity_screen.dart';
 import 'member_models.dart';
 
@@ -39,7 +40,7 @@ class _MemberActionsSheetState extends State<_MemberActionsSheet> {
   void _close([Member? result]) => Navigator.pop(context, result ?? _member);
 
   void _feedback(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    showAppToast(context, message, type: AppToastType.success);
   }
 
   void _activate() {
@@ -60,37 +61,19 @@ class _MemberActionsSheetState extends State<_MemberActionsSheet> {
     _close();
   }
 
-  void _confirmSuspend() {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Suspender membro?'),
-        content: Text(
-          '${_member.name} deixará de aceder à plataforma até ser activado novamente.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() => _member = _member.suspend());
-              Navigator.pop(dialogContext);
-              _feedback('${_member.name} foi suspenso');
-              _close();
-            },
-            child: const Text(
-              'Suspender',
-              style: TextStyle(
-                color: Color(0xFFD43B27),
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
+  Future<void> _confirmSuspend() async {
+    final confirmed = await showAppDialog(
+      context,
+      title: 'Suspender membro?',
+      message: '${_member.name} deixará de aceder à plataforma até ser activado novamente.',
+      confirmLabel: 'Suspender',
+      cancelLabel: 'Cancelar',
+      type: AppDialogType.danger,
     );
+    if (!confirmed || !mounted) return;
+    setState(() => _member = _member.suspend());
+    _feedback('${_member.name} foi suspenso');
+    _close();
   }
 
   Future<void> _openActivity() async {

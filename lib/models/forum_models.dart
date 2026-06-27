@@ -63,6 +63,7 @@ class ForumTopic {
   final TopicVisibility visibility;
   final String timeAgo;
   final int comments;
+  final int members;
   final int likes;
   final bool isPinned;
   final bool isLiked;
@@ -87,6 +88,7 @@ class ForumTopic {
     this.visibility = TopicVisibility.publico,
     required this.timeAgo,
     required this.comments,
+    this.members = 0,
     required this.likes,
     this.isPinned = false,
     this.isLiked = false,
@@ -105,6 +107,7 @@ class ForumTopic {
     bool? isLiked,
     bool? isReadOnly,
     int? comments,
+    int? members,
   }) =>
       ForumTopic(
         id: id,
@@ -119,6 +122,7 @@ class ForumTopic {
         visibility: visibility,
         timeAgo: timeAgo,
         comments: comments ?? this.comments,
+        members: members ?? this.members,
         likes: likes ?? this.likes,
         isPinned: isPinned,
         isLiked: isLiked ?? this.isLiked,
@@ -167,6 +171,7 @@ class ForumTopic {
           : TopicVisibility.publico,
       timeAgo: _timeAgo(createdAt),
       comments: _parseInt(json['comments_count']),
+      members: _parseInt(json['members_count']),
       likes: _parseInt(json['likes_count']),
       isPinned: json['is_pinned'] == true,
       isLiked: json['is_liked'] == true,
@@ -179,6 +184,62 @@ class ForumTopic {
       permissions: json['permissions'] is Map<String, dynamic>
           ? ForumTopicPermissions.fromJson(json['permissions'] as Map<String, dynamic>)
           : const ForumTopicPermissions(),
+    );
+  }
+}
+
+class AccessRequestDetail {
+  final int id;
+  final String requesterName;
+  final String requesterInitials;
+  final Color avatarBg;
+  final Color avatarFg;
+  final String message;
+  final int topicId;
+  final String topicTitle;
+  final String requesterRole;
+  final DateTime? requestedAt;
+
+  const AccessRequestDetail({
+    required this.id,
+    required this.requesterName,
+    required this.requesterInitials,
+    required this.avatarBg,
+    required this.avatarFg,
+    required this.message,
+    required this.topicId,
+    required this.topicTitle,
+    required this.requesterRole,
+    this.requestedAt,
+  });
+
+  factory AccessRequestDetail.fromJson(Map<String, dynamic> json) {
+    final userJson = json['user'] ?? json['requester'];
+    final user = userJson is Map<String, dynamic> ? userJson : const <String, dynamic>{};
+    final userId = _parseInt(user['id']);
+    final name = user['name']?.toString() ?? 'Utilizador';
+    final parts = name.trim().split(RegExp(r'\s+'));
+    final initials = parts.length >= 2
+        ? '${parts.first[0]}${parts.last[0]}'.toUpperCase()
+        : parts.isNotEmpty && parts.first.isNotEmpty
+            ? parts.first[0].toUpperCase()
+            : 'U';
+    final pal = _avatarPalette[userId % _avatarPalette.length];
+
+    final topicJson = json['topic'] ?? json['forum_topic'];
+    final topic = topicJson is Map<String, dynamic> ? topicJson : const <String, dynamic>{};
+
+    return AccessRequestDetail(
+      id: _parseInt(json['id']),
+      requesterName: name,
+      requesterInitials: initials,
+      avatarBg: pal[0],
+      avatarFg: pal[1],
+      message: json['message']?.toString() ?? '',
+      topicId: _parseInt(topic['id'] ?? json['forum_topic_id']),
+      topicTitle: topic['title']?.toString() ?? json['topic_title']?.toString() ?? '',
+      requesterRole: user['role']?.toString() ?? user['user_role']?.toString() ?? '',
+      requestedAt: DateTime.tryParse(json['created_at']?.toString() ?? ''),
     );
   }
 }

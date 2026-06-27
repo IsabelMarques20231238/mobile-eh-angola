@@ -12,6 +12,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/shared_widgets.dart';
 import 'criar_topico_screen.dart';
+import '../notifications/notifications_screen.dart';
 
 class ForumTopicDetailScreen extends StatefulWidget {
   final ForumTopic topic;
@@ -46,11 +47,13 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
   int? _autoExpandParentId;  // ID do comentário de topo cujas replies se expandem auto
   int? _activeHighlightId;   // ID do comentário/reply a destacar
   StreamSubscription<RealtimeEvent>? _realtimeSub;
+  bool _isReadOnly = false;
 
   @override
   void initState() {
     super.initState();
     _topic = widget.topic;
+    _isReadOnly = widget.topic.isReadOnly;
     _saved = widget.topic.isSaved;
     if (widget.topic.id > 0) {
       _loadTopicDetail();
@@ -71,6 +74,7 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
       if (!mounted) return;
       setState(() {
         if (detail.topic != null) _topic = detail.topic!;
+        _isReadOnly = detail.isReadOnly;
         _topicBody = detail.body.isNotEmpty ? detail.body : null;
         _saved = detail.isSaved;
         _comments = detail.comments;
@@ -140,11 +144,17 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
 
       case TopicUpdatedEvent(:final topicId, :final isReadOnly, :final title, :final commentsCount):
         if (topicId != _topic.id) return;
-        setState(() => _topic = _topic.copyWith(
-              isReadOnly: isReadOnly,
-              title: title,
-              comments: commentsCount,
-            ));
+        setState(() {
+          _isReadOnly = isReadOnly ?? _isReadOnly;
+          _topic = _topic.copyWith(
+            isReadOnly: isReadOnly,
+            title: title,
+            comments: commentsCount,
+          );
+        });
+
+      case NotificationReceivedEvent():
+        break;
     }
   }
 
@@ -187,6 +197,7 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
       showSearch: _showSearch,
       onSearchChanged: (_) => setState(() {}),
       onSearchTap: () => setState(() => _showSearch = !_showSearch),
+      onNotificationsTap: () => showNotificationsPanel(context),
       body: Column(
         children: [
           Expanded(
@@ -252,7 +263,10 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
                     tags: _topicTags,
                     saved: _saved,
                     onSave: _toggleSave,
-                    onEdit: _topic.permissions.canEdit ? _openEdit : null,
+                    onEdit: (_topic.permissions.canEdit &&
+                            _topic.authorId == AuthState.instance.user?.id)
+                        ? _openEdit
+                        : null,
                     onDelete:
                         _topic.permissions.canDelete ? _deleteTopic : null,
                   ),
@@ -316,6 +330,7 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
                           highlightedReplyId:
                               isParent ? _activeHighlightId : null,
                           autoExpandReplies: isParent,
+                          readOnly: _isReadOnly || !_topic.permissions.canComment,
                         ),
                       ),
                     ],
@@ -328,9 +343,9 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
         ],
       ),
           ),
-          if (_topic.isReadOnly)
+          if (_isReadOnly)
             const _ReadOnlyBanner()
-          else
+          else if (_topic.permissions.canComment)
             _InstagramComposerBar(
               controller: _replyController,
               focusNode: _replyFocusNode,
@@ -353,7 +368,7 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _saved = !_saved);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      showAppToast(context, e.message, type: AppToastType.error);
     }
   }
 
@@ -372,34 +387,20 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
   }
 
   Future<void> _deleteTopic() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Apagar tópico'),
-        content: const Text(
-          'Tens a certeza que queres apagar este tópico? Esta acção é irreversível.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
-            child: const Text('Apagar'),
-          ),
-        ],
-      ),
+    final confirmed = await showAppDialog(
+      context,
+      title: 'Apagar tópico',
+      message: 'Tens a certeza que queres apagar este tópico? Esta acção é irreversível.',
+      confirmLabel: 'Apagar',
+      cancelLabel: 'Cancelar',
+      type: AppDialogType.danger,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     try {
       await ForumService.instance.deleteTopic(_topic.id);
       if (mounted) Navigator.pop(context);
     } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
+      if (mounted) showAppToast(context, e.message, type: AppToastType.error);
     }
   }
 
@@ -443,7 +444,7 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
         }
       } on ApiException catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+          showAppToast(context, e.message, type: AppToastType.error);
         }
       }
     } else if (parentId == null) {
@@ -479,7 +480,7 @@ class _ForumTopicDetailScreenState extends State<ForumTopicDetailScreen> {
       await _silentRefreshComments();
     } on ApiException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        showAppToast(context, e.message, type: AppToastType.error);
       }
     }
   }
@@ -599,10 +600,8 @@ class _TopicBodyCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.start,
-            spacing: compact ? 12 : 18,
-            runSpacing: 10,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               AppAvatar(
                 initials: topic.authorInitials,
@@ -610,17 +609,14 @@ class _TopicBodyCard extends StatelessWidget {
                 bg: topic.avatarBg ?? AppColors.wine,
                 fg: topic.avatarFg ?? Colors.white,
               ),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: compact ? 230 : 420,
-                  minWidth: 0,
-                ),
+              SizedBox(width: compact ? 12 : 18),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       topic.authorName,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Color(0xFF0F172A),
@@ -628,21 +624,25 @@ class _TopicBodyCard extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       topic.authorRole,
                       style: const TextStyle(
                         color: Color(0xFF94A3B8),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
               ),
+              GestureDetector(
+                onTap: () => _showTopicMenu(context),
+                child: const Icon(Icons.more_horiz, color: Color(0xFF94A3B8), size: 24),
+              ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Row(
             children: [
               _PublicBadge(isPrivate: topic.visibility == TopicVisibility.privado),
@@ -654,11 +654,6 @@ class _TopicBodyCard extends StatelessWidget {
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                 ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => _showTopicMenu(context),
-                child: const Icon(Icons.more_horiz, color: Color(0xFF94A3B8), size: 22),
               ),
             ],
           ),
@@ -1036,6 +1031,7 @@ class _CommentCard extends StatefulWidget {
   final bool isHighlighted;
   final int? highlightedReplyId;
   final bool autoExpandReplies;
+  final bool readOnly;
 
   const _CommentCard({
     required this.comment,
@@ -1045,6 +1041,7 @@ class _CommentCard extends StatefulWidget {
     this.isHighlighted = false,
     this.highlightedReplyId,
     this.autoExpandReplies = false,
+    this.readOnly = false,
   });
 
   @override
@@ -1075,13 +1072,13 @@ class _CommentCardState extends State<_CommentCard> {
 
   Future<void> _toggleLike() async {
     if (!AuthState.requireAuth(context)) return;
-    setState(() { _liked = !_liked; _likes += _liked ? 1 : -1; });
+    setState(() => _liked = !_liked);
     if (widget.comment.numericId <= 0) return;
     try {
       final r = await ForumService.instance.likeComment(widget.comment.numericId);
       if (mounted) setState(() { _liked = r.liked; _likes = r.likesCount; });
     } on ApiException {
-      if (mounted) setState(() { _liked = !_liked; _likes += _liked ? -1 : 1; });
+      if (mounted) setState(() => _liked = !_liked);
     }
   }
 
@@ -1122,9 +1119,7 @@ class _CommentCardState extends State<_CommentCard> {
               title: const Text('Reportar comentário'),
               onTap: () {
                 Navigator.pop(sheetCtx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Comentário reportado')),
-                );
+                showAppToast(context, 'Comentário reportado', type: AppToastType.info);
               },
             ),
             ListTile(
@@ -1154,16 +1149,16 @@ class _CommentCardState extends State<_CommentCard> {
     final isReply = widget.nested;
     final avatarSize = isReply ? 32.0 : 40.0;
 
-    // Text content: @mention bold inline for replies
-    final textWidget = isReply && comment.mentionUserName != null
+    // Text content: @mention wine-coloured whenever present (flat threading)
+    final textWidget = comment.mentionUserName != null
         ? Text.rich(
             TextSpan(children: [
               TextSpan(
                 text: '@${comment.mentionUserName} ',
                 style: const TextStyle(
-                  color: Color(0xFF0F172A),
+                  color: Color(0xFF7B1D45),
                   fontSize: 14,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                   height: 1.5,
                 ),
               ),
@@ -1211,18 +1206,20 @@ class _CommentCardState extends State<_CommentCard> {
             ),
           ),
         ],
-        const SizedBox(width: 16),
-        GestureDetector(
-          onTap: () => widget.onReply(comment),
-          child: const Text(
-            'Responder',
-            style: TextStyle(
-              color: Color(0xFF64748B),
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
+        if (!widget.readOnly) ...[
+          const SizedBox(width: 16),
+          GestureDetector(
+            onTap: () => widget.onReply(comment),
+            child: const Text(
+              'Responder',
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-        ),
+        ],
         const Spacer(),
         GestureDetector(
           onTap: () => _showOptions(context),
@@ -1357,6 +1354,7 @@ class _CommentCardState extends State<_CommentCard> {
                         nested: true,
                         isHighlighted:
                             e.value.numericId == widget.highlightedReplyId,
+                        readOnly: widget.readOnly,
                       ),
                     )),
               ],

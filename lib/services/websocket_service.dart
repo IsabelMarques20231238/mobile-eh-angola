@@ -76,6 +76,20 @@ class WebSocketService {
     _send({'event': 'unsubscribe', 'channel': ch});
   }
 
+  /// Subscreve o canal privado do utilizador para receber notificações em tempo real.
+  void subscribeToUserNotifications(int userId) {
+    final ch = 'user.$userId';
+    _channels.add(ch);
+    _send({'event': 'subscribe', 'channel': ch});
+  }
+
+  /// Remove a subscrição do canal de notificações do utilizador (ex: ao fazer logout).
+  void unsubscribeFromUserNotifications(int userId) {
+    final ch = 'user.$userId';
+    _channels.remove(ch);
+    _send({'event': 'unsubscribe', 'channel': ch});
+  }
+
   // ── Implementação interna ─────────────────────────────────────────────────
 
   Future<void> _doConnect() async {

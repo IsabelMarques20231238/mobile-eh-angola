@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'api_client.dart';
+import 'realtime_event.dart';
+import 'websocket_service.dart';
 
 class NotificationState extends ChangeNotifier {
   NotificationState._();
@@ -7,6 +11,11 @@ class NotificationState extends ChangeNotifier {
 
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
+
+  StreamSubscription<RealtimeEvent>? _wsSub;
+  Timer? _pollTimer;
+
+  static const _pollInterval = Duration(seconds: 30);
 
   void setUnreadCount(int count) {
     final clamped = count.clamp(0, 9999);
@@ -36,5 +45,31 @@ class NotificationState extends ChangeNotifier {
     } on ApiException {
       // Falha silenciosa — o badge mantém o valor anterior
     }
+  }
+
+  /// Liga a escuta em tempo real (WebSocket) + polling de fallback a cada 30 s.
+  /// Deve ser chamado após autenticação bem-sucedida.
+  void startListening() {
+    // WebSocket — actualização instantânea quando o evento chega
+    _wsSub?.cancel();
+    _wsSub = WebSocketService.instance.events.listen((event) {
+      if (event is NotificationReceivedEvent) {
+        _unreadCount = (_unreadCount + 1).clamp(0, 9999);
+        notifyListeners();
+      }
+    });
+
+    // Polling de fallback — garante actualização mesmo que o evento WS tenha
+    // um nome diferente no backend ou a ligação esteja temporariamente em baixo.
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(_pollInterval, (_) => refresh());
+  }
+
+  /// Para a escuta e o polling (ex: ao fazer logout).
+  void stopListening() {
+    _wsSub?.cancel();
+    _wsSub = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
   }
 }

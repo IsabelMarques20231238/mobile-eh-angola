@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 import 'report_models.dart';
 
 const _reportRed = Color(0xFFD43B27);
@@ -31,49 +32,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   void _ignore(Report report) {
     setState(() => _reports.removeWhere((r) => r.id == report.id));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Denúncia ignorada')),
-    );
+    showAppToast(context, 'Denúncia ignorada', type: AppToastType.info);
   }
 
-  void _removeContent(Report report) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Remover conteúdo?'),
-        content: const Text(
-          'Esta acção remove o conteúdo denunciado da plataforma. Não pode ser desfeita.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() => _reports.removeWhere((r) => r.id == report.id));
-              Navigator.pop(dialogContext);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Conteúdo removido')),
-              );
-            },
-            child: const Text(
-              'Remover',
-              style: TextStyle(
-                color: _reportRed,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
+  Future<void> _removeContent(Report report) async {
+    final confirmed = await showAppDialog(
+      context,
+      title: 'Remover conteúdo?',
+      message: 'Esta acção remove o conteúdo denunciado da plataforma. Não pode ser desfeita.',
+      confirmLabel: 'Remover',
+      cancelLabel: 'Cancelar',
+      type: AppDialogType.danger,
     );
+    if (!confirmed || !mounted) return;
+    setState(() => _reports.removeWhere((r) => r.id == report.id));
+    showAppToast(context, 'Conteúdo removido', type: AppToastType.success);
   }
 
   void _viewOriginal(Report report) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('A abrir conteúdo original…')),
-    );
+    showAppToast(context, 'A abrir conteúdo original…', type: AppToastType.info);
   }
 
   @override

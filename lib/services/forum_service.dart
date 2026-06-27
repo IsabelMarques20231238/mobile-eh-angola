@@ -201,13 +201,14 @@ class ForumService {
 
   // ── POST /forum/invites/{id}/accept ───────────────────────────────────────
 
-  /// Aceita um convite e devolve o topic_id do tópico ao qual dá acesso.
-  Future<int> acceptInvite(int inviteId) async {
+  /// Aceita um convite e devolve o tópico completo com has_access:true.
+  Future<ForumTopic> acceptInvite(int inviteId) async {
     final data = await _api.post('/forum/invites/$inviteId/accept', authenticated: true);
     if (data is Map<String, dynamic>) {
-      // API returns 'topic_id'; fall back to 'forum_topic_id' for safety
-      final id = _parseInt(data['topic_id'] ?? data['forum_topic_id']);
-      if (id > 0) return id;
+      final topicJson = data['topic'] ?? data['data'] ?? data;
+      if (topicJson is Map<String, dynamic> && topicJson.containsKey('id')) {
+        return ForumTopic.fromApiJson(topicJson);
+      }
     }
     throw const ApiException('Não foi possível obter o tópico após aceitar o convite.');
   }
@@ -220,12 +221,20 @@ class ForumService {
 
   // ── POST /forum/topics/{id}/join-with-code ────────────────────────────────
 
-  Future<void> joinWithCode(int topicId, String code) async {
-    await _api.post(
+  /// Entra num tópico privado via código e devolve o tópico completo com has_access:true.
+  Future<ForumTopic> joinWithCode(int topicId, String code) async {
+    final data = await _api.post(
       '/forum/topics/$topicId/join-with-code',
       body: {'join_code': code.toUpperCase()},
       authenticated: true,
     );
+    if (data is Map<String, dynamic>) {
+      final topicJson = data['topic'] ?? data['data'] ?? data;
+      if (topicJson is Map<String, dynamic> && topicJson.containsKey('id')) {
+        return ForumTopic.fromApiJson(topicJson);
+      }
+    }
+    throw const ApiException('Não foi possível obter o tópico após entrar.');
   }
 
   // ── POST /forum/topics/{id}/request-access ─────────────────────────────────
@@ -236,6 +245,32 @@ class ForumService {
       body: {'message': message},
       authenticated: true,
     );
+  }
+
+  // ── GET /forum/topics/{topicId}/access-requests ──────────────────────────
+
+  Future<List<AccessRequestDetail>> getAccessRequests(int topicId) async {
+    final data = await _api.get('/forum/topics/$topicId/access-requests', authenticated: true);
+    final raw = data is Map<String, dynamic>
+        ? (data['data'] ?? data['access_requests'] ?? data)
+        : data;
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(AccessRequestDetail.fromJson)
+        .toList();
+  }
+
+  // ── PATCH /forum/topics/{topicId}/access-requests/{requestId}/approve ────
+
+  Future<void> approveAccessRequest(int topicId, int requestId) async {
+    await _api.patch('/forum/topics/$topicId/access-requests/$requestId/approve', authenticated: true);
+  }
+
+  // ── PATCH /forum/topics/{topicId}/access-requests/{requestId}/reject ─────
+
+  Future<void> rejectAccessRequest(int topicId, int requestId) async {
+    await _api.patch('/forum/topics/$topicId/access-requests/$requestId/reject', authenticated: true);
   }
 
   // ── GET /forum/comments/{id} ──────────────────────────────────────────────
@@ -393,12 +428,13 @@ class ForumService {
   // ── helpers ─────────────────────────────────────────────────────────────────
 
   Future<dynamic> _getOptAuth(String path, {Map<String, String?> query = const {}}) async {
-    try {
-      return await _api.get(path, query: query, authenticated: true);
-    } on ApiException catch (e) {
-      if (e.statusCode == 401) return _api.get(path, query: query);
-      rethrow;
+    // Se já há token em cache, o utilizador está autenticado — envia sempre com auth
+    // e deixa qualquer erro propagar (não faz fallback silencioso para guest mode).
+    if (_api.cachedToken != null && _api.cachedToken!.isNotEmpty) {
+      return _api.get(path, query: query, authenticated: true);
     }
+    // Sem token: modo guest — retorna só tópicos PUBLIC.
+    return _api.get(path, query: query);
   }
 }
 

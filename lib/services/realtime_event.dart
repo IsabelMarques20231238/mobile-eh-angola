@@ -37,6 +37,7 @@ sealed class RealtimeEvent {
         'TopicLikeUpdated' => TopicLikeUpdatedEvent._fromData(data),
         'CommentLikeUpdated' => CommentLikeUpdatedEvent._fromData(data),
         'TopicUpdated' => TopicUpdatedEvent._fromData(data),
+        'NotificationCreated' || 'NewNotification' => NotificationReceivedEvent._fromData(data),
         _ => null,
       };
     } catch (_) {
@@ -126,6 +127,21 @@ final class TopicUpdatedEvent extends RealtimeEvent {
         commentsCount: data['comments_count'] != null
             ? _parseInt(data['comments_count'])
             : null,
+      );
+}
+
+// ── Nova notificação para o utilizador ───────────────────────────────────────
+
+final class NotificationReceivedEvent extends RealtimeEvent {
+  final int? notificationId;
+  final String? type;
+
+  const NotificationReceivedEvent({this.notificationId, this.type});
+
+  factory NotificationReceivedEvent._fromData(Map<String, dynamic> data) =>
+      NotificationReceivedEvent(
+        notificationId: data['id'] != null ? _parseInt(data['id']) : null,
+        type: data['type']?.toString(),
       );
 }
 

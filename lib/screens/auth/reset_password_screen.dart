@@ -4,6 +4,7 @@ import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -30,7 +31,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       await AuthService(ApiClient.instance).forgotPassword(_email.text.trim());
       if (mounted) Navigator.pushReplacementNamed(context, AppRoutes.newPassword, arguments: _email.text.trim());
     } on ApiException catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      if (mounted) showAppToast(context, error.message, type: AppToastType.error);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

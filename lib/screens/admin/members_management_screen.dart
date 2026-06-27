@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 import 'member_actions_sheet.dart';
 import 'member_models.dart';
 
@@ -78,18 +79,14 @@ class _MembersManagementScreenState extends State<MembersManagementScreen> {
                 label: 'Actividade recente',
                 onTap: () {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Ordenado por actividade')),
-                  );
+                  showAppToast(context, 'Ordenado por actividade', type: AppToastType.info);
                 },
               ),
               _SortTile(
                 label: 'Data de registo',
                 onTap: () {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Ordenado por registo')),
-                  );
+                  showAppToast(context, 'Ordenado por registo', type: AppToastType.info);
                 },
               ),
             ],

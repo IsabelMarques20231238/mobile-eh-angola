@@ -1,6 +1,8 @@
 import 'api_client.dart';
 import 'api_models.dart';
 import 'auth_state.dart';
+import 'notification_state.dart';
+import 'websocket_service.dart';
 
 class AuthService {
   AuthService(this._api);
@@ -54,9 +56,14 @@ class AuthService {
   }
 
   Future<void> logout() async {
+    final userId = AuthState.instance.user?.id;
     try {
       await _api.post('/logout', authenticated: true);
     } finally {
+      if (userId != null) {
+        WebSocketService.instance.unsubscribeFromUserNotifications(userId);
+      }
+      NotificationState.instance.stopListening();
       await _api.clearToken();
       AuthState.instance.clearUser();
     }

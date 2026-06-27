@@ -4,6 +4,7 @@ import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class NewPasswordScreen extends StatefulWidget {
   const NewPasswordScreen({super.key});
@@ -48,7 +49,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
       );
       if (mounted) Navigator.pushReplacementNamed(context, AppRoutes.login);
     } on ApiException catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      if (mounted) showAppToast(context, error.message, type: AppToastType.error);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

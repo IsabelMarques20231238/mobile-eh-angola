@@ -4,9 +4,6 @@ import '../../screens/notifications/notifications_screen.dart';
 import '../../screens/articles/article_detail_screen.dart';
 import '../../screens/jindungo/jindungo_feed_screen.dart';
 import '../../screens/podcast/podcast_detail_screen.dart';
-import '../../screens/quiz/quiz_detail_screen.dart';
-import '../../screens/quiz/quiz_guest_preview_screen.dart';
-import '../../screens/quiz/quiz_models.dart';
 import '../../screens/search/search_screen.dart';
 import '../../screens/video/video_detail_screen.dart';
 import '../../theme/app_theme.dart';
@@ -23,7 +20,10 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   int _featuredPage = 0;
   final _pageController = PageController();
-  late final List<Quiz> _quizzes;
+  static const _quizItems = [
+    (title: 'A Reforma Monetária de 1999', questions: 10, author: 'Dr. Armindo Santos', badge: 'NOVO'),
+    (title: 'Petróleo e Poder em Angola', questions: 8, author: 'Prof. Ana Silva', badge: 'MÉDIO'),
+  ];
 
   static const _featuredItems = [
     _FeaturedItem(
@@ -113,7 +113,6 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   void initState() {
     super.initState();
-    _quizzes = QuizData.quizzes;
   }
 
   @override
@@ -224,12 +223,15 @@ class _FeedScreenState extends State<FeedScreen> {
               onSeeAll: () => Navigator.pushNamed(context, AppRoutes.quizList),
             ),
             const SizedBox(height: 12),
-            ..._quizzes.map(
-              (quiz) => Padding(
+            ..._quizItems.map(
+              (q) => Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: _QuizListCard(
-                  quiz: quiz,
-                  onTap: () => _openQuiz(quiz),
+                  title: q.title,
+                  questionsCount: q.questions,
+                  author: q.author,
+                  badge: q.badge,
+                  onTap: () => Navigator.pushNamed(context, AppRoutes.quizList),
                 ),
               ),
             ),
@@ -242,17 +244,6 @@ class _FeedScreenState extends State<FeedScreen> {
         backgroundColor: AppColors.wine,
         elevation: 2,
         child: const Icon(Icons.add, color: Colors.white, size: 28),
-      ),
-    );
-  }
-
-  void _openQuiz(Quiz quiz) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => widget.isGuest
-            ? QuizGuestPreviewScreen(quiz: quiz)
-            : QuizDetailScreen(quiz: quiz),
       ),
     );
   }
@@ -839,10 +830,19 @@ class _SectionHeader extends StatelessWidget {
 // ── Quiz list card ───────────────────────────────────────────────────────────
 
 class _QuizListCard extends StatelessWidget {
-  final Quiz quiz;
+  final String title;
+  final int questionsCount;
+  final String author;
+  final String badge;
   final VoidCallback onTap;
 
-  const _QuizListCard({required this.quiz, required this.onTap});
+  const _QuizListCard({
+    required this.title,
+    required this.questionsCount,
+    required this.author,
+    required this.badge,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -872,7 +872,7 @@ class _QuizListCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                quiz.isNew ? 'NOVO' : quiz.difficulty.label.toUpperCase(),
+                badge.toUpperCase(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 9,
@@ -883,7 +883,7 @@ class _QuizListCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              quiz.title,
+              title,
               style: const TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
@@ -894,10 +894,10 @@ class _QuizListCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text.rich(
               TextSpan(
-                text: '${quiz.questionCount} perguntas • Criado por ',
+                text: '$questionsCount perguntas • Criado por ',
                 children: [
                   TextSpan(
-                    text: quiz.author,
+                    text: author,
                     style: const TextStyle(
                       color: AppColors.wine,
                       fontWeight: FontWeight.w600,

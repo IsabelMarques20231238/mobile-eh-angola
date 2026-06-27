@@ -54,7 +54,13 @@ class _AppLoaderState extends State<_AppLoader> {
     WebSocketService.instance.connect();
     if (!mounted) return;
     if (AuthState.instance.isAuthenticated) {
-      NotificationState.instance.refresh();
+      final userId = AuthState.instance.user?.id;
+      if (userId != null) {
+        WebSocketService.instance.subscribeToUserNotifications(userId);
+      }
+      NotificationState.instance
+        ..startListening()
+        ..refresh();
       Navigator.pushReplacementNamed(context, AppRoutes.feed);
     } else {
       Navigator.pushReplacement(

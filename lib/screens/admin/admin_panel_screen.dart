@@ -5,6 +5,7 @@ import 'members_management_screen.dart';
 import 'reports_screen.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class AdminPanelScreen extends StatelessWidget {
   const AdminPanelScreen({super.key});
@@ -92,7 +93,7 @@ class AdminPanelScreen extends StatelessWidget {
   }
 
   void _showFeedback(BuildContext context, String label) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
+    showAppToast(context, label, type: AppToastType.success);
   }
 }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -32,9 +33,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void _save() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Perfil actualizado')));
+    showAppToast(context, 'Perfil actualizado', type: AppToastType.success);
     Navigator.pop(context);
   }
 
@@ -78,9 +77,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         padding: const EdgeInsets.fromLTRB(18, 28, 18, 26),
         children: [
           _AvatarEditor(
-            onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Seleccionar foto de perfil')),
-            ),
+            onTap: () => showAppToast(context, 'Seleccionar foto de perfil', type: AppToastType.info),
           ),
           const SizedBox(height: 30),
           _EditableField(label: 'Nome completo', controller: name),

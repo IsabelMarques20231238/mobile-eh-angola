@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 class CreateContentScreen extends StatefulWidget {
   const CreateContentScreen({super.key});
@@ -29,9 +30,7 @@ class _CreateContentScreenState extends State<CreateContentScreen> {
   }
 
   void _publish() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${_types[type].label} enviado para publicação')),
-    );
+    showAppToast(context, '${_types[type].label} enviado para publicação', type: AppToastType.success);
     Navigator.pop(context);
   }
 

@@ -18,6 +18,11 @@ class AuthState extends ChangeNotifier {
     return 'Membro';
   }
 
+  bool get canCreateQuiz {
+    final roles = _user?.roles ?? [];
+    return roles.any((r) => r == 'SUPER_ADMIN' || r == 'ADMIN' || r == 'AUTHOR');
+  }
+
   String get initials {
     final name = _user?.name ?? '';
     final parts = name.trim().split(RegExp(r'\s+'));

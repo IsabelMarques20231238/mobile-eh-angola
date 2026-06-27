@@ -4,6 +4,7 @@ import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -50,7 +51,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    showAppToast(context, message, type: AppToastType.error);
   }
 
   @override
@@ -115,7 +116,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 const SizedBox(height: 16),
                 const DividerWithText(text: 'ou'),
                 const SizedBox(height: 14),
-                GoogleButton(onPressed: () {}),
+                GoogleButton(onPressed: null),
                 const SizedBox(height: 18),
                 PrimaryButton(text: 'Criar Conta', onPressed: _submit, isLoading: _loading),
                 const SizedBox(height: 8),

@@ -1467,8 +1467,7 @@ class _PrivateForumCreatedDialogState
     } on ApiException catch (e) {
       if (mounted) {
         setState(() => _isSending = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.message)));
+        showAppToast(context, e.message, type: AppToastType.error);
       }
     }
   }

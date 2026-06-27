@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/theme_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -21,7 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool activity = true;
 
   void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    showAppToast(context, message, type: AppToastType.info);
   }
 
   String get _themeModeLabel => switch (ThemeState.instance.mode) {

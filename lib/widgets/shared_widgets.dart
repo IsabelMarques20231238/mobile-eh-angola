@@ -414,6 +414,267 @@ class AppToggle extends StatelessWidget {
   }
 }
 
-void showAppToast(BuildContext context, String message) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+// ── App Toast ────────────────────────────────────────────────────────────────
+
+enum AppToastType { success, error, info, warning }
+
+void showAppToast(
+  BuildContext context,
+  String message, {
+  AppToastType type = AppToastType.info,
+}) {
+  final cfg = _toastConfig(type);
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+        duration: const Duration(seconds: 3),
+        content: _AppToastWidget(message: message, cfg: cfg),
+      ),
+    );
+}
+
+class _ToastConfig {
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+  final Color borderColor;
+  const _ToastConfig({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+    required this.borderColor,
+  });
+}
+
+_ToastConfig _toastConfig(AppToastType type) => switch (type) {
+      AppToastType.success => const _ToastConfig(
+          icon: Icons.check_circle_rounded,
+          iconColor: Color(0xFF15945B),
+          iconBg: Color(0xFFDCFCE7),
+          borderColor: Color(0xFFBBF7D0),
+        ),
+      AppToastType.error => const _ToastConfig(
+          icon: Icons.error_rounded,
+          iconColor: Color(0xFFB83357),
+          iconBg: Color(0xFFFBE7EC),
+          borderColor: Color(0xFFF5C2CF),
+        ),
+      AppToastType.warning => const _ToastConfig(
+          icon: Icons.warning_rounded,
+          iconColor: Color(0xFFB45309),
+          iconBg: Color(0xFFFEF3C7),
+          borderColor: Color(0xFFFDE68A),
+        ),
+      AppToastType.info => const _ToastConfig(
+          icon: Icons.info_rounded,
+          iconColor: Color(0xFF7B173F),
+          iconBg: Color(0xFFFDF0F5),
+          borderColor: Color(0xFFF8D9E4),
+        ),
+    };
+
+class _AppToastWidget extends StatelessWidget {
+  final String message;
+  final _ToastConfig cfg;
+  const _AppToastWidget({required this.message, required this.cfg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cfg.borderColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: cfg.iconBg,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(cfg.icon, color: cfg.iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF151114),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── App Dialog ───────────────────────────────────────────────────────────────
+
+enum AppDialogType { danger, warning, info }
+
+Future<bool> showAppDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String confirmLabel = 'Confirmar',
+  String cancelLabel = 'Cancelar',
+  AppDialogType type = AppDialogType.danger,
+}) async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierColor: Colors.black54,
+    builder: (ctx) => _AppDialog(
+      title: title,
+      message: message,
+      confirmLabel: confirmLabel,
+      cancelLabel: cancelLabel,
+      type: type,
+    ),
+  );
+  return result ?? false;
+}
+
+class _AppDialog extends StatelessWidget {
+  final String title;
+  final String message;
+  final String confirmLabel;
+  final String cancelLabel;
+  final AppDialogType type;
+
+  const _AppDialog({
+    required this.title,
+    required this.message,
+    required this.confirmLabel,
+    required this.cancelLabel,
+    required this.type,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, iconColor, iconBg, confirmBg) = switch (type) {
+      AppDialogType.danger => (
+          Icons.delete_outline_rounded,
+          const Color(0xFFB83357),
+          const Color(0xFFFBE7EC),
+          const Color(0xFFB83357),
+        ),
+      AppDialogType.warning => (
+          Icons.warning_amber_rounded,
+          const Color(0xFFB45309),
+          const Color(0xFFFEF3C7),
+          const Color(0xFFB45309),
+        ),
+      AppDialogType.info => (
+          Icons.info_outline_rounded,
+          const Color(0xFF7B173F),
+          const Color(0xFFFDF0F5),
+          const Color(0xFF7B173F),
+        ),
+    };
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
+              child: Icon(icon, color: iconColor, size: 28),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF151114),
+                height: 1.25,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF686066),
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF686066),
+                      side: const BorderSide(color: Color(0xFFF0E7EB)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    child: Text(cancelLabel),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: confirmBg,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    child: Text(confirmLabel),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

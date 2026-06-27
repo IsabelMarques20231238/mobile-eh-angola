@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 class PodcastDetailScreen extends StatefulWidget {
   final PodcastEpisode episode;
@@ -67,26 +68,20 @@ class _PodcastDetailScreenState extends State<PodcastDetailScreen> {
 
   void _cycleSpeed() {
     setState(() => _speedIndex = (_speedIndex + 1) % _speeds.length);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(_speeds[_speedIndex])),
-    );
+    showAppToast(context, _speeds[_speedIndex], type: AppToastType.info);
   }
 
   void _toggleSaved() {
     setState(() => _saved = !_saved);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _saved ? 'Episódio guardado' : 'Removido dos guardados',
-        ),
-      ),
+    showAppToast(
+      context,
+      _saved ? 'Episódio guardado' : 'Removido dos guardados',
+      type: _saved ? AppToastType.success : AppToastType.info,
     );
   }
 
   void _share() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Link do episódio copiado')),
-    );
+    showAppToast(context, 'Link do episódio copiado', type: AppToastType.success);
   }
 
   @override

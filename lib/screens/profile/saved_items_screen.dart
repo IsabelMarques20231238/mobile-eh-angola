@@ -5,6 +5,7 @@ import '../../services/api_client.dart';
 import '../../services/forum_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 import '../articles/article_detail_screen.dart';
 import '../forum/forum_topic_detail_screen.dart';
 import '../podcast/podcast_detail_screen.dart';
@@ -76,22 +77,17 @@ class _SavedItemsScreenState extends State<SavedItemsScreen> {
 
   void _removeItem(SavedItem item) {
     setState(() => _items.removeWhere((i) => i.id == item.id));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Item removido dos guardados')),
-    );
+    showAppToast(context, 'Item removido dos guardados', type: AppToastType.info);
   }
 
   Future<void> _unsaveTopic(ForumTopic topic) async {
-    // Optimistic remove
     setState(() => _savedTopics.removeWhere((t) => t.id == topic.id));
     try {
       await ForumService.instance.bookmarkTopic(topic.id);
     } on ApiException catch (e) {
       if (mounted) {
         setState(() => _savedTopics.insert(0, topic));
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
-        );
+        showAppToast(context, e.message, type: AppToastType.error);
       }
     }
   }

@@ -3,8 +3,7 @@ import '../../models/mock_data.dart';
 import '../../theme/app_theme.dart';
 import '../articles/article_detail_screen.dart';
 import '../forum/forum_topic_detail_screen.dart';
-import '../quiz/quiz_detail_screen.dart';
-import '../quiz/quiz_models.dart';
+import '../quiz/quiz_list_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -274,7 +273,7 @@ class _CompactResult extends StatelessWidget {
     onTap: () => Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => QuizDetailScreen(quiz: QuizData.quizzes.first),
+        builder: (_) => const QuizListScreen(),
       ),
     ),
     child: Container(

@@ -218,41 +218,25 @@ class _ForumListingScreenState extends State<ForumListingScreen> {
       );
       if (refreshed == true && mounted) _loadTopics();
     } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
+      if (mounted) showAppToast(context, e.message, type: AppToastType.error);
     }
   }
 
   Future<void> _deleteTopic(ForumTopic topic) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Apagar tópico'),
-        content: const Text(
-          'Tens a certeza que queres apagar este tópico? Esta acção é irreversível.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
-            child: const Text('Apagar'),
-          ),
-        ],
-      ),
+    final confirmed = await showAppDialog(
+      context,
+      title: 'Apagar tópico',
+      message: 'Tens a certeza que queres apagar este tópico? Esta acção é irreversível.',
+      confirmLabel: 'Apagar',
+      cancelLabel: 'Cancelar',
+      type: AppDialogType.danger,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     try {
       await ForumService.instance.deleteTopic(topic.id);
       if (mounted) setState(() => _topics.removeWhere((t) => t.id == topic.id));
     } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
+      if (mounted) showAppToast(context, e.message, type: AppToastType.error);
     }
   }
 
@@ -519,51 +503,6 @@ class _TopicCardState extends State<_TopicCard> {
     }
   }
 
-  void _showTopicOptions(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (sheetCtx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFCBD5E1),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 4),
-            if (widget.onEdit != null)
-              ListTile(
-                leading: const Icon(Icons.edit_outlined, color: Color(0xFF64748B)),
-                title: const Text('Editar tópico'),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  widget.onEdit!();
-                },
-              ),
-            if (widget.onDelete != null)
-              ListTile(
-                leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
-                title: const Text('Apagar tópico',
-                    style: TextStyle(color: Color(0xFFDC2626))),
-                onTap: () {
-                  Navigator.pop(sheetCtx);
-                  widget.onDelete!();
-                },
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -610,17 +549,6 @@ class _TopicCardState extends State<_TopicCard> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (widget.onEdit != null || widget.onDelete != null) ...[
-                        const SizedBox(width: 4),
-                        GestureDetector(
-                          onTap: () => _showTopicOptions(context),
-                          child: Icon(
-                            Icons.more_horiz,
-                            size: 20,
-                            color: c.muted,
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -634,16 +562,26 @@ class _TopicCardState extends State<_TopicCard> {
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          topic.authorName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: c.textMain,
-                            fontSize: 13,
-                            height: 1.2,
-                            fontWeight: FontWeight.w900,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              topic.authorName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: c.textMain,
+                                fontSize: 13,
+                                height: 1.2,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            if (topic.authorRole.isNotEmpty)
+                              Text(
+                                topic.authorRole,
+                                style: TextStyle(color: c.muted, fontSize: 11),
+                              ),
+                          ],
                         ),
                       ),
                     ],
@@ -691,8 +629,8 @@ class _TopicCardState extends State<_TopicCard> {
               likes: _likes,
               liked: _liked,
               comments: topic.comments,
-
               saved: _saved,
+
               onLike: _toggleLike,
               onComment: widget.onTap,
               onSave: _toggleSave,

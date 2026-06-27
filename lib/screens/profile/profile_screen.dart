@@ -8,6 +8,7 @@ import '../../services/auth_service.dart';
 import '../../services/auth_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -469,38 +470,23 @@ class _ActionButtons extends StatelessWidget {
             label: 'Terminar Sessão',
             background: const Color(0xFFD43B27),
             foreground: Colors.white,
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Terminar Sessão'),
-                content: const Text('Tem a certeza que deseja sair da sua conta?'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancelar'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      try {
-                        await AuthService(ApiClient.instance).logout();
-                      } catch (_) {}
-                      if (context.mounted) {
-                        Navigator.pushNamedAndRemoveUntil(
-                          context,
-                          '/login',
-                          (_) => false,
-                        );
-                      }
-                    },
-                    child: const Text(
-                      'Sair',
-                      style: TextStyle(color: Color(0xFFD43B27)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            onPressed: () async {
+              final confirmed = await showAppDialog(
+                context,
+                title: 'Terminar Sessão',
+                message: 'Tem a certeza que deseja sair da sua conta?',
+                confirmLabel: 'Sair',
+                cancelLabel: 'Cancelar',
+                type: AppDialogType.warning,
+              );
+              if (!confirmed || !context.mounted) return;
+              try {
+                await AuthService(ApiClient.instance).logout();
+              } catch (_) {}
+              if (context.mounted) {
+                Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+              }
+            },
           ),
         ],
       ),

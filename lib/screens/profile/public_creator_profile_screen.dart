@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 import '../articles/article_detail_screen.dart';
-import '../quiz/quiz_detail_screen.dart';
-import '../quiz/quiz_models.dart';
+import '../../routes/app_routes.dart';
 
 class PublicCreatorProfileScreen extends StatefulWidget {
   final String name;
@@ -547,13 +547,7 @@ class _ConteudoTab extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _PopularQuizCard(
-          onPlay: () {
-            final quiz = QuizData.quizzes[1];
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => QuizDetailScreen(quiz: quiz)),
-            );
-          },
+          onPlay: () => Navigator.pushNamed(context, AppRoutes.quizList),
         ),
         const SizedBox(height: 20),
         const Divider(color: AppColors.borderLight, height: 1),
@@ -763,9 +757,7 @@ class _JindungoAccessCard extends StatelessWidget {
                 height: 44,
                 child: ElevatedButton(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Pedido de acesso enviado')),
-                    );
+                    showAppToast(context, 'Pedido de acesso enviado', type: AppToastType.success);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.wine,

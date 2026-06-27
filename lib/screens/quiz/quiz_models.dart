@@ -1,296 +1,441 @@
-// ─── Modelos de dados do módulo Quiz ────────────────────────────────────────
+// ─── API Models for Quiz module ──────────────────────────────────────────────
 
-enum QuizDifficulty { facil, medio, dificil }
-enum QuizCategory { historia, economia, politica, cultura }
+enum QuizDifficulty { easy, medium, hard }
 
-extension QuizDifficultyLabel on QuizDifficulty {
+extension QuizDifficultyX on QuizDifficulty {
+  // Labels that match the API exactly
   String get label {
     switch (this) {
-      case QuizDifficulty.facil: return 'Fácil';
-      case QuizDifficulty.medio: return 'Médio';
-      case QuizDifficulty.dificil: return 'Difícil';
+      case QuizDifficulty.easy:   return 'Iniciante';
+      case QuizDifficulty.medium: return 'Médio';
+      case QuizDifficulty.hard:   return 'Avançado';
     }
   }
 }
 
-extension QuizCategoryLabel on QuizCategory {
-  String get label {
-    switch (this) {
-      case QuizCategory.historia: return 'História';
-      case QuizCategory.economia: return 'Economia';
-      case QuizCategory.politica: return 'Política';
-      case QuizCategory.cultura: return 'Cultura';
-    }
+QuizDifficulty difficultyFromApi(String? value) {
+  switch (value) {
+    case 'Iniciante': return QuizDifficulty.easy;
+    case 'Avançado':  return QuizDifficulty.hard;
+    case 'Médio':
+    default:          return QuizDifficulty.medium;
   }
 }
 
-class QuizOption {
-  final String id;
+// ─── AnswerOptionModel ────────────────────────────────────────────────────────
+
+class AnswerOptionModel {
+  final int id;
   final String text;
-  final bool isCorrect;
+  final int quizPosition;
+  final bool? isCorrect;
+  final String? explanation;
 
-  const QuizOption({
+  AnswerOptionModel({
     required this.id,
     required this.text,
-    required this.isCorrect,
+    required this.quizPosition,
+    this.isCorrect,
+    this.explanation,
   });
+
+  factory AnswerOptionModel.fromJson(Map<String, dynamic> json) {
+    return AnswerOptionModel(
+      id: json['id'] as int,
+      text: json['text'] as String,
+      quizPosition: json['quiz_position'] as int? ?? 0,
+      isCorrect: json['is_correct'] as bool?,
+      explanation: json['explanation'] as String?,
+    );
+  }
 }
 
-class QuizQuestion {
-  final String id;
-  final String question;
-  final String? imageUrl;
-  final List<QuizOption> options;
-  final String explanation;
+// ─── QuestionModel ────────────────────────────────────────────────────────────
 
-  const QuizQuestion({
+class QuestionModel {
+  final int id;
+  final String text;
+  final int orderIndex;
+  final String? explanation;
+  final List<AnswerOptionModel> options;
+
+  QuestionModel({
     required this.id,
-    required this.question,
-    this.imageUrl,
+    required this.text,
+    required this.orderIndex,
+    this.explanation,
     required this.options,
-    required this.explanation,
   });
+
+  factory QuestionModel.fromJson(Map<String, dynamic> json) {
+    final rawOptions = json['options'] as List? ?? json['answer_options'] as List? ?? [];
+    return QuestionModel(
+      id: json['id'] as int,
+      text: json['text'] as String,
+      orderIndex: json['order_index'] as int? ?? 0,
+      explanation: json['explanation'] as String?,
+      options: rawOptions
+          .map((e) => AnswerOptionModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 }
 
-class QuizAttempt {
-  final int score;
-  final int total;
-  final String time;
-  final bool passed;
+// ─── ReviewInfoModel ──────────────────────────────────────────────────────────
 
-  const QuizAttempt({
-    required this.score,
-    required this.total,
-    required this.time,
-    required this.passed,
+class ReviewInfoModel {
+  final String status;
+  final Map<String, dynamic>? reviewedBy;
+  final String? reviewedAt;
+  final String? reviewedAtHuman;
+  final String? rejectionReason;
+
+  ReviewInfoModel({
+    required this.status,
+    this.reviewedBy,
+    this.reviewedAt,
+    this.reviewedAtHuman,
+    this.rejectionReason,
   });
+
+  factory ReviewInfoModel.fromJson(Map<String, dynamic> json) {
+    return ReviewInfoModel(
+      status: json['status'] as String,
+      reviewedBy: json['reviewed_by'] as Map<String, dynamic>?,
+      reviewedAt: json['reviewed_at'] as String?,
+      reviewedAtHuman: json['reviewed_at_human'] as String?,
+      rejectionReason: json['rejection_reason'] as String?,
+    );
+  }
 }
 
-class Quiz {
-  final String id;
+// ─── QuizModel ────────────────────────────────────────────────────────────────
+
+class QuizModel {
+  final int id;
   final String title;
-  final String description;
-  final String author;
-  final String authorRole;
-  final QuizDifficulty difficulty;
-  final QuizCategory category;
+  final String? description;
+  final String difficulty;
+  final Map<String, dynamic>? category;
+  final String? theme;
   final int questionCount;
-  final String avgTime;
-  final List<QuizQuestion> questions;
-  final List<QuizAttempt> attempts;
+  final int? durationMinutes;
+  final int? avgTime;
+  final int attemptsCount;
+  final double avgScore;
+  final int rewardPoints;
+  final bool isAiGenerated;
+  final String? coverImageUrl;
+  final String status;
   final bool isNew;
+  final Map<String, dynamic>? article;
+  final Map<String, dynamic>? author;
+  final double? userBestScore;
+  final bool hasAttempted;
+  final int userAttemptsCount;
+  final DateTime? createdAt;
+  final List<QuestionModel> questions;
+  final List<Map<String, dynamic>> relatedArticles;
+  final ReviewInfoModel? reviewInfo;
 
-  const Quiz({
+  QuizModel({
     required this.id,
     required this.title,
-    required this.description,
-    required this.author,
-    required this.authorRole,
+    this.description,
     required this.difficulty,
-    required this.category,
+    this.category,
+    this.theme,
     required this.questionCount,
-    required this.avgTime,
-    required this.questions,
-    this.attempts = const [],
-    this.isNew = false,
+    this.durationMinutes,
+    this.avgTime,
+    required this.attemptsCount,
+    required this.avgScore,
+    required this.rewardPoints,
+    required this.isAiGenerated,
+    this.coverImageUrl,
+    required this.status,
+    required this.isNew,
+    this.article,
+    this.author,
+    this.userBestScore,
+    required this.hasAttempted,
+    required this.userAttemptsCount,
+    this.createdAt,
+    this.questions = const [],
+    this.relatedArticles = const [],
+    this.reviewInfo,
   });
 
-  bool get attempted => attempts.isNotEmpty;
-  QuizAttempt? get bestAttempt => attempts.isEmpty
-      ? null
-      : attempts.reduce((a, b) => a.score > b.score ? a : b);
+  factory QuizModel.fromJson(Map<String, dynamic> json) {
+    final rawQuestions = json['questions'] as List? ?? [];
+    final rawRelated = json['related_articles'] as List? ?? [];
+    return QuizModel(
+      id: json['id'] as int,
+      title: json['title'] as String,
+      description: json['description'] as String?,
+      difficulty: json['difficulty'] as String? ?? 'Iniciante',
+      category: json['category'] as Map<String, dynamic>?,
+      theme: json['theme'] as String?,
+      questionCount: json['question_count'] as int? ?? 0,
+      durationMinutes: json['duration_minutes'] as int?,
+      avgTime: json['avg_time'] as int?,
+      attemptsCount: json['attempts_count'] as int? ?? 0,
+      avgScore: (json['avg_score'] as num?)?.toDouble() ?? 0,
+      rewardPoints: json['reward_points'] as int? ?? 0,
+      isAiGenerated: json['is_ai_generated'] as bool? ?? false,
+      coverImageUrl: json['cover_image_url'] as String?,
+      status: json['status'] as String? ?? 'APPROVED',
+      isNew: json['is_new'] as bool? ?? false,
+      article: json['article'] as Map<String, dynamic>?,
+      author: json['author'] as Map<String, dynamic>?,
+      userBestScore: (json['user_best_score'] as num?)?.toDouble(),
+      hasAttempted: json['has_attempted'] as bool? ?? false,
+      userAttemptsCount: json['user_attempts_count'] as int? ?? 0,
+      createdAt: json['created_at'] == null
+          ? null
+          : DateTime.tryParse(json['created_at'] as String),
+      questions: rawQuestions
+          .map((e) => QuestionModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      relatedArticles: rawRelated
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+      reviewInfo: json['review_info'] == null
+          ? null
+          : ReviewInfoModel.fromJson(json['review_info'] as Map<String, dynamic>),
+    );
+  }
+
+  QuizDifficulty get difficultyEnum => difficultyFromApi(difficulty);
+  String get categoryName => category?['name'] as String? ?? theme ?? 'Geral';
+  String get authorName => author?['name'] as String? ?? 'EH Angola';
+  String get authorDisplayRole => author?['display_role'] as String? ?? 'Equipa';
+  int get estimatedMinutes => durationMinutes ?? avgTime ?? 0;
 }
 
-class RankingEntry {
-  final int position;
-  final String name;
-  final String institution;
+// ─── AttemptAnswerModel ───────────────────────────────────────────────────────
+
+class AttemptAnswerModel {
+  final int? questionId;
+  final String? questionText;
+  final int? selectedOptionId;
+  final String? selectedOptionText;
+  final int? correctOptionId;
+  final String? correctOptionText;
+  final int? correctOptionIndex;
+  final bool isCorrect;
+  final String? explanation;
+
+  AttemptAnswerModel({
+    this.questionId,
+    this.questionText,
+    this.selectedOptionId,
+    this.selectedOptionText,
+    this.correctOptionId,
+    this.correctOptionText,
+    this.correctOptionIndex,
+    required this.isCorrect,
+    this.explanation,
+  });
+
+  factory AttemptAnswerModel.fromJson(Map<String, dynamic> json) {
+    return AttemptAnswerModel(
+      questionId: json['question_id'] as int?,
+      questionText: json['question_text'] as String?,
+      selectedOptionId: json['selected_option_id'] as int?,
+      selectedOptionText: json['selected_option_text'] as String?,
+      correctOptionId: json['correct_option_id'] as int?,
+      correctOptionText: json['correct_option_text'] as String?,
+      correctOptionIndex: json['correct_option_index'] as int? ??
+          json['correctOptionIndex'] as int?,
+      isCorrect: json['is_correct'] as bool? ?? false,
+      explanation: json['explanation'] as String?,
+    );
+  }
+}
+
+// ─── QuizAttemptModel ─────────────────────────────────────────────────────────
+
+class QuizAttemptModel {
+  final int? id;
+  final int? attemptId;
+  final int? attemptNumber;
   final int score;
-  final int total;
-  final bool isCurrentUser;
-  final String? avatarInitials;
+  final int totalQuestions;
+  final int correctAnswers;
+  final double percentage;
+  final int? timeSpentSeconds;
+  final int pointsEarned;
+  final bool? isFirstAttempt;
+  final String? completedAt;
+  final String? completedAtHuman;
+  final String? performance;
+  final String? performanceMessage;
+  final bool success;
+  final List<AttemptAnswerModel> answers;
 
-  const RankingEntry({
-    required this.position,
-    required this.name,
-    required this.institution,
+  QuizAttemptModel({
+    this.id,
+    this.attemptId,
+    this.attemptNumber,
     required this.score,
-    required this.total,
-    this.isCurrentUser = false,
-    this.avatarInitials,
+    required this.totalQuestions,
+    required this.correctAnswers,
+    required this.percentage,
+    this.timeSpentSeconds,
+    required this.pointsEarned,
+    this.isFirstAttempt,
+    this.completedAt,
+    this.completedAtHuman,
+    this.performance,
+    this.performanceMessage,
+    required this.success,
+    this.answers = const [],
   });
+
+  factory QuizAttemptModel.fromJson(Map<String, dynamic> json) {
+    final rawAnswers = json['answers'] as List? ?? [];
+    return QuizAttemptModel(
+      id: json['id'] as int?,
+      attemptId: json['attempt_id'] as int?,
+      attemptNumber: json['attempt_number'] as int?,
+      score: json['score'] as int? ?? 0,
+      totalQuestions: json['total_questions'] as int? ?? 0,
+      correctAnswers:
+          json['correct_answers'] as int? ?? json['score'] as int? ?? 0,
+      percentage: (json['percentage'] as num?)?.toDouble() ?? 0,
+      timeSpentSeconds: json['time_spent_seconds'] as int?,
+      pointsEarned: json['points_earned'] as int? ?? 0,
+      isFirstAttempt: json['is_first_attempt'] as bool?,
+      completedAt: json['completed_at'] as String?,
+      completedAtHuman: json['completed_at_human'] as String?,
+      performance: json['performance'] as String?,
+      performanceMessage: json['performance_message'] as String?,
+      success: json['success'] as bool? ?? false,
+      answers: rawAnswers
+          .map((e) => AttemptAnswerModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 }
 
-class RecommendedContent {
-  final String type; // 'capitulo', 'leitura_rapida', 'video'
-  final String title;
-  final String subtitle;
+// ─── MyAttemptsResponse ───────────────────────────────────────────────────────
 
-  const RecommendedContent({
-    required this.type,
-    required this.title,
-    required this.subtitle,
+class MyAttemptsResponse {
+  final bool hasAttempted;
+  final int attemptCount;
+  final QuizAttemptModel? firstAttempt;
+  final List<QuizAttemptModel> attempts;
+
+  MyAttemptsResponse({
+    required this.hasAttempted,
+    required this.attemptCount,
+    this.firstAttempt,
+    required this.attempts,
   });
+
+  factory MyAttemptsResponse.fromJson(Map<String, dynamic> json) {
+    final rawAttempts = json['attempts'] as List? ?? [];
+    return MyAttemptsResponse(
+      hasAttempted: json['has_attempted'] as bool? ?? false,
+      attemptCount: json['attempt_count'] as int? ?? 0,
+      firstAttempt: json['first_attempt'] == null
+          ? null
+          : QuizAttemptModel.fromJson(
+              json['first_attempt'] as Map<String, dynamic>),
+      attempts: rawAttempts
+          .map((e) => QuizAttemptModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 }
 
-// ─── Dados de exemplo ────────────────────────────────────────────────────────
+// ─── RankingItemModel (quiz-specific) ────────────────────────────────────────
 
-class QuizData {
-  static final List<Quiz> quizzes = [
-    Quiz(
-      id: '1',
-      title: 'Desafios da Economia Colonial',
-      description: 'Explora os principais desafios económicos do período colonial angolano.',
-      author: 'Prof. Mendes',
-      authorRole: 'Professor',
-      difficulty: QuizDifficulty.medio,
-      category: QuizCategory.economia,
-      questionCount: 10,
-      avgTime: '03:24',
-      isNew: true,
-      questions: _questoesColonial,
-    ),
-    Quiz(
-      id: '2',
-      title: 'A Moeda Kwanza: Origens',
-      description: 'Aprende sobre a história da criação do Kwanza e o seu significado.',
-      author: 'Prof. Mendes',
-      authorRole: 'Professor',
-      difficulty: QuizDifficulty.facil,
-      category: QuizCategory.historia,
-      questionCount: 10,
-      avgTime: '02:45',
-      questions: _questoesKwanza,
-    ),
-    Quiz(
-      id: '3',
-      title: 'A Reforma Monetária de 1999 e Seu Impacto',
-      description: 'Explora os detalhes da transição para o Kwanza e como esta reforma estabilizou a economia angolana no final do século XX.',
-      author: 'Prof. Ana Silva',
-      authorRole: 'Admin',
-      difficulty: QuizDifficulty.medio,
-      category: QuizCategory.economia,
-      questionCount: 10,
-      avgTime: '03:24',
-      questions: _questoesReforma,
-      attempts: [
-        QuizAttempt(score: 7, total: 10, time: '02:45', passed: true),
-      ],
-    ),
-    Quiz(
-      id: '4',
-      title: 'Reformas Económicas de 1987',
-      description: 'Analisa o Programa de Saneamento Económico e Financeiro (SEF) de 1987.',
-      author: 'Prof. Mendes',
-      authorRole: 'Professor',
-      difficulty: QuizDifficulty.dificil,
-      category: QuizCategory.economia,
-      questionCount: 15,
-      avgTime: '05:00',
-      questions: _questoesReforma1987,
-    ),
-  ];
+class RankingItemModel {
+  final int position;
+  final Map<String, dynamic>? user;
+  final int score;
+  final int totalQuestions;
+  final double percentage;
+  final int? timeSpentSeconds;
+  final String? completedAt;
+  final bool isFirstAttempt;
 
-  static const List<QuizQuestion> _questoesColonial = [
-    QuizQuestion(
-      id: 'q1',
-      question: 'Qual foi o principal produto de exportação de Angola durante o período colonial?',
-      options: [
-        QuizOption(id: 'a', text: 'Café', isCorrect: true),
-        QuizOption(id: 'b', text: 'Diamantes', isCorrect: false),
-        QuizOption(id: 'c', text: 'Petróleo', isCorrect: false),
-        QuizOption(id: 'd', text: 'Algodão', isCorrect: false),
-      ],
-      explanation: 'O café foi o principal produto de exportação colonial, representando mais de 50% das receitas de exportação.',
-    ),
-    QuizQuestion(
-      id: 'q2',
-      question: 'O sistema de trabalho forçado colonial em Angola era denominado:',
-      options: [
-        QuizOption(id: 'a', text: 'Senzala', isCorrect: false),
-        QuizOption(id: 'b', text: 'Contrato', isCorrect: true),
-        QuizOption(id: 'c', text: 'Corveia', isCorrect: false),
-        QuizOption(id: 'd', text: 'Palmatorada', isCorrect: false),
-      ],
-      explanation: 'O "contrato" era o sistema de trabalho forçado imposto pelos colonizadores portugueses.',
-    ),
-  ];
+  RankingItemModel({
+    required this.position,
+    this.user,
+    required this.score,
+    required this.totalQuestions,
+    required this.percentage,
+    this.timeSpentSeconds,
+    this.completedAt,
+    required this.isFirstAttempt,
+  });
 
-  static const List<QuizQuestion> _questoesKwanza = [
-    QuizQuestion(
-      id: 'q1',
-      question: 'Em que ano foi introduzido o Kwanza como moeda oficial de Angola?',
-      options: [
-        QuizOption(id: 'a', text: '1975', isCorrect: true),
-        QuizOption(id: 'b', text: '1977', isCorrect: false),
-        QuizOption(id: 'c', text: '1980', isCorrect: false),
-        QuizOption(id: 'd', text: '1985', isCorrect: false),
-      ],
-      explanation: 'O Kwanza foi introduzido em 1975, aquando da independência de Angola.',
-    ),
-  ];
+  factory RankingItemModel.fromJson(Map<String, dynamic> json) {
+    return RankingItemModel(
+      position: json['position'] as int,
+      user: json['user'] as Map<String, dynamic>?,
+      score: json['score'] as int? ?? 0,
+      totalQuestions: json['total_questions'] as int? ?? 0,
+      percentage: (json['percentage'] as num?)?.toDouble() ?? 0,
+      timeSpentSeconds: json['time_spent_seconds'] as int?,
+      completedAt: json['completed_at'] as String?,
+      isFirstAttempt: json['is_first_attempt'] as bool? ?? true,
+    );
+  }
 
-  static const List<QuizQuestion> _questoesReforma = [
-    QuizQuestion(
-      id: 'q1',
-      question: 'Qual foi o impacto da reforma monetária de 1999 na economia angolana?',
-      imageUrl: 'assets/images/kwanza.jpg',
-      options: [
-        QuizOption(id: 'a', text: 'Redução da inflação', isCorrect: false),
-        QuizOption(id: 'b', text: 'Substituição do Kwanza', isCorrect: true),
-        QuizOption(id: 'c', text: 'Redução da inflação', isCorrect: false),
-        QuizOption(id: 'd', text: 'Redução da inflação', isCorrect: false),
-      ],
-      explanation: 'A estabilização do Kwanza foi o pilar central da reconstrução pós-conflito.',
-    ),
-    QuizQuestion(
-      id: 'q2',
-      question: 'Qual era a taxa de inflação anual antes da reforma de 1999?',
-      options: [
-        QuizOption(id: 'a', text: 'Abaixo de 50%', isCorrect: false),
-        QuizOption(id: 'b', text: 'Entre 100% e 500%', isCorrect: false),
-        QuizOption(id: 'c', text: 'Acima de 1000%', isCorrect: true),
-        QuizOption(id: 'd', text: 'Entre 500% e 1000%', isCorrect: false),
-      ],
-      explanation: 'Angola enfrentou hiperinflação superior a 1000% ao ano antes da reforma.',
-    ),
-  ];
+  String get userName => user?['name'] as String? ?? 'Utilizador';
+  String get institution => user?['institution'] as String? ?? '';
+  String get initials {
+    final parts = userName.trim().split(' ');
+    if (parts.length >= 2) return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    return userName.isNotEmpty ? userName[0].toUpperCase() : '?';
+  }
+}
 
-  static const List<QuizQuestion> _questoesReforma1987 = [
-    QuizQuestion(
-      id: 'q1',
-      question: 'O Programa de Saneamento Económico e Financeiro (SEF) foi lançado em:',
-      options: [
-        QuizOption(id: 'a', text: '1985', isCorrect: false),
-        QuizOption(id: 'b', text: '1987', isCorrect: true),
-        QuizOption(id: 'c', text: '1989', isCorrect: false),
-        QuizOption(id: 'd', text: '1991', isCorrect: false),
-      ],
-      explanation: 'O SEF foi lançado em 1987 como primeira tentativa de reforma económica estrutural.',
-    ),
-  ];
+// ─── GlobalRankingItemModel ───────────────────────────────────────────────────
 
-  static final List<RankingEntry> globalRanking = [
-    RankingEntry(position: 1, name: 'Isabel Jamba', institution: 'ISPTEC', score: 10, total: 10, avatarInitials: 'IJ'),
-    RankingEntry(position: 2, name: 'Carlos Neto', institution: 'UAN', score: 9, total: 10, avatarInitials: 'CN'),
-    RankingEntry(position: 3, name: 'Miguel Rocha', institution: 'UCCA', score: 8, total: 10, avatarInitials: 'MR'),
-    RankingEntry(position: 4, name: 'Pedro Gonçalves', institution: 'Universidade Agostinho Neto', score: 8, total: 10, avatarInitials: 'PG'),
-    RankingEntry(position: 5, name: 'Sara Bento', institution: 'ISPTEC', score: 8, total: 10, avatarInitials: 'SB'),
-    RankingEntry(position: 6, name: 'Ricardo Diniz', institution: 'DCSA', score: 8, total: 10, avatarInitials: 'RD'),
-    RankingEntry(position: 7, name: 'Inês Santos', institution: 'Católica de Angola', score: 8, total: 10, avatarInitials: 'IS'),
-    RankingEntry(position: 8, name: 'Carlos Mendes', institution: 'ISPTEC', score: 7, total: 10, isCurrentUser: true, avatarInitials: 'CM'),
-  ];
+class GlobalRankingItemModel {
+  final int position;
+  final Map<String, dynamic>? user;
+  final int totalPoints;
+  final int quizzesCompleted;
+  final double avgAccuracy;
 
-  static final List<RecommendedContent> recommended = [
-    RecommendedContent(
-      type: 'capitulo',
-      title: 'A Reforma Cambial em Angola (1990)',
-      subtitle: 'Capítulo 4',
-    ),
-    RecommendedContent(
-      type: 'leitura_rapida',
-      title: 'Evolução do Kwanza no Pós-Independência',
-      subtitle: 'Leitura Rápida',
-    ),
-  ];
+  GlobalRankingItemModel({
+    required this.position,
+    this.user,
+    required this.totalPoints,
+    required this.quizzesCompleted,
+    required this.avgAccuracy,
+  });
+
+  factory GlobalRankingItemModel.fromJson(Map<String, dynamic> json) {
+    return GlobalRankingItemModel(
+      position: json['position'] as int,
+      user: json['user'] as Map<String, dynamic>?,
+      totalPoints: json['total_points'] as int? ?? 0,
+      quizzesCompleted: json['quizzes_completed'] as int? ?? 0,
+      avgAccuracy: (json['avg_accuracy'] as num?)?.toDouble() ?? 0,
+    );
+  }
+
+  String get userName => user?['name'] as String? ?? 'Utilizador';
+  String get institution => user?['institution'] as String? ?? '';
+  String get initials {
+    final parts = userName.trim().split(' ');
+    if (parts.length >= 2) return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    return userName.isNotEmpty ? userName[0].toUpperCase() : '?';
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+String formatSeconds(int? seconds) {
+  final value = seconds ?? 0;
+  final minutes = (value ~/ 60).toString().padLeft(2, '0');
+  final secs = (value % 60).toString().padLeft(2, '0');
+  return '$minutes:$secs';
 }

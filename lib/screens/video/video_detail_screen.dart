@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   final VideoLesson video;
@@ -87,9 +88,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   void _share() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Link do vídeo copiado')),
-    );
+    showAppToast(context, 'Link do vídeo copiado', type: AppToastType.success);
   }
 
   void _toggleLike() {
@@ -166,15 +165,11 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       _commentCount++;
       _commentController.clear();
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Comentário publicado')),
-    );
+    showAppToast(context, 'Comentário publicado', type: AppToastType.success);
   }
 
   void _openRelated(RelatedVideo item) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('A abrir: ${item.title}')),
-    );
+    showAppToast(context, 'A abrir: ${item.title}', type: AppToastType.info);
   }
 
   Future<void> _enterFullscreen() async {

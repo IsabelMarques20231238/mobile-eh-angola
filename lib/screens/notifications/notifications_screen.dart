@@ -5,6 +5,7 @@ import '../../services/api_client.dart';
 import '../../services/forum_service.dart';
 import '../../services/notification_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -59,14 +60,53 @@ class AppNotification {
 
   // ── Navigation helpers ──────────────────────────────────────────────────────
 
-  // reference_type routing (from API docs):
-  //   'forum_topic'          → referenceId = topic_id  (navigate directly)
-  //   'comment'              → referenceId = comment_id (resolve topic via GET /forum/comments/{id})
-  //   'topic_access_request' → referenceId = access_request_id (show invite modal)
+  bool get isTopicRef   => referenceType == 'forum_topic';
+  bool get isCommentRef => referenceType == 'comment';
 
-  bool get isTopicRef    => referenceType == 'forum_topic';
-  bool get isCommentRef  => referenceType == 'comment';
-  bool get isInviteRef   => referenceType == 'topic_access_request';
+  // Pedido de acesso: pode chegar com diferentes tipos/referenceTypes da API.
+  bool get isInviteRef =>
+      referenceType == 'topic_access_request' ||
+      type.toUpperCase().contains('ACCESS_REQUEST');
+
+  // ID do pedido de acesso. Prioridade:
+  //   1) referenceType == 'topic_access_request' → referenceId é o request_id
+  //   2) metadata com campos access_request_id / request_id / ...
+  //   3) Fallback: usa referenceId directamente (API pode enviar request_id
+  //      mesmo com referenceType='forum_topic')
+  int? get accessRequestId {
+    if (referenceType == 'topic_access_request') return referenceId;
+    final meta = metadata;
+    if (meta != null) {
+      for (final key in ['access_request_id', 'request_id', 'forum_access_request_id']) {
+        final val = meta[key];
+        if (val != null) {
+          final parsed = val is int ? val : int.tryParse(val.toString());
+          if (parsed != null && parsed > 0) return parsed;
+        }
+      }
+    }
+    if (referenceId != null && referenceId! > 0) return referenceId;
+    return null;
+  }
+
+  // ID do tópico associado ao pedido de acesso.
+  int? get accessRequestTopicId {
+    final meta = metadata;
+    if (meta != null) {
+      for (final key in ['forum_topic_id', 'topic_id']) {
+        final val = meta[key];
+        if (val != null) {
+          final parsed = val is int ? val : int.tryParse(val.toString());
+          if (parsed != null && parsed > 0) return parsed;
+        }
+      }
+    }
+    // Quando referenceType == 'forum_topic', referenceId é o topicId
+    if (referenceType == 'forum_topic' && referenceId != null && referenceId! > 0) {
+      return referenceId;
+    }
+    return null;
+  }
 
   bool get isForumType => type.startsWith('FORUM_');
 
@@ -95,6 +135,7 @@ class AppNotification {
   }
 
   IconData get icon {
+    if (isInviteRef) return Icons.person_add_alt_1_outlined;
     if (type == 'FORUM_JOIN_BY_CODE') return Icons.login_outlined;
     if (type.startsWith('FORUM_')) return Icons.forum_outlined;
     if (type.startsWith('QUIZ_')) return Icons.quiz_outlined;
@@ -105,6 +146,7 @@ class AppNotification {
   }
 
   Color get iconColor {
+    if (isInviteRef) return AppColors.wine;
     if (type.startsWith('FORUM_')) return const Color(0xFF2563EB);
     if (type.startsWith('QUIZ_')) return AppColors.wine;
     if (type == 'NEW_CONTENT') return const Color(0xFF059669);
@@ -114,6 +156,7 @@ class AppNotification {
   }
 
   Color get iconBg {
+    if (isInviteRef) return AppColors.wineBg;
     if (type.startsWith('FORUM_')) return const Color(0xFFEFF6FF);
     if (type.startsWith('QUIZ_')) return AppColors.wineBg;
     if (type == 'NEW_CONTENT') return const Color(0xFFECFDF5);
@@ -232,109 +275,90 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
 
   Future<void> _onTap(AppNotification n) async {
     if (!n.isRead) _markRead(n.id);
-    if (!n.isForumType) return;
 
-    // Convite — referenceId é o access_request_id, não o topic_id
-    if (n.isInviteRef && n.referenceId != null) {
-      Navigator.of(context).pop();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (widget.outerContext.mounted) _showInvite(widget.outerContext, n);
-      });
-      return;
+    // Pedido de acesso — só precisamos do topicId (requestId não vem na notificação)
+    if (n.isInviteRef) {
+      final topicId = n.accessRequestTopicId;
+      if (topicId != null) {
+        _closeAndRun(() => _showInvite(widget.outerContext, topicId));
+        return;
+      }
     }
 
-    // Notificação de comentário — referenceId é comment_id; resolver topic_id via API
-    if (n.isCommentRef && n.referenceId != null) {
+    // Resolver topicId e commentId preferencialmente via metadata
+    final meta = n.metadata;
+    int? topicId = _metaInt(meta, 'forum_topic_id');
+    int? commentId = _metaInt(meta, 'comment_id');
+
+    // Fallback: comentário sem metadata — resolver topic via API
+    if (topicId == null && n.isCommentRef && n.referenceId != null && n.referenceId! > 0) {
       try {
         final ref = await ForumService.instance.getComment(n.referenceId!);
         if (!mounted) return;
-        Navigator.of(context).pop();
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!widget.outerContext.mounted) return;
-          Navigator.of(widget.outerContext).push(MaterialPageRoute(
-            builder: (_) => ForumTopicDetailScreen(
-              topic: ForumTopic(
-                id: ref.topicId, title: '', excerpt: '',
-                authorName: '', authorInitials: '?',
-                category: TopicCategory.tudo, timeAgo: '', comments: 0, likes: 0,
-              ),
-              highlightCommentId: n.referenceId,
-            ),
-          ));
-        });
+        topicId = ref.topicId;
+        commentId ??= n.referenceId;
       } on ApiException {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Não foi possível abrir a notificação.')),
-          );
-        }
+        if (mounted) showAppToast(context, 'Não foi possível abrir a notificação.', type: AppToastType.error);
+        return;
       }
-      return;
     }
 
-    // Referência directa ao tópico (forum_topic)
-    final topicId = n.referenceId;
+    // Último fallback: usar referenceId directamente
+    topicId ??= n.referenceId;
     if (topicId == null || topicId <= 0) return;
-    Navigator.of(context).pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!widget.outerContext.mounted) return;
-      Navigator.of(widget.outerContext).push(MaterialPageRoute(
-        builder: (_) => ForumTopicDetailScreen(
-          topic: ForumTopic(
-            id: topicId, title: '', excerpt: '', authorName: '',
-            authorInitials: '?', category: TopicCategory.tudo,
-            timeAgo: '', comments: 0, likes: 0,
-          ),
+
+    final tid = topicId;
+    final cid = commentId;
+    _closeAndRun(() => Navigator.of(widget.outerContext).push(MaterialPageRoute(
+      builder: (_) => ForumTopicDetailScreen(
+        topic: ForumTopic(
+          id: tid, title: '', excerpt: '', authorName: '',
+          authorInitials: '?', category: TopicCategory.tudo,
+          timeAgo: '', comments: 0, likes: 0,
         ),
-      ));
-    });
+        highlightCommentId: cid,
+      ),
+    )));
   }
 
-  void _showInvite(BuildContext ctx, AppNotification n) {
-    showModalBottomSheet<void>(
+  static int? _metaInt(Map<String, dynamic>? meta, String key) {
+    if (meta == null) return null;
+    final v = meta[key];
+    if (v is int && v > 0) return v;
+    return int.tryParse(v?.toString() ?? '');
+  }
+
+  // Fecha o painel pelo navigator do contexto pai e executa a acção seguinte.
+  void _closeAndRun(VoidCallback action) {
+    if (!widget.outerContext.mounted) return;
+    Navigator.of(widget.outerContext).pop();
+    action();
+  }
+
+  void _showInvite(BuildContext ctx, int topicId) {
+    showModalBottomSheet<_AccessRequestResult>(
       context: ctx,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetCtx) => _InviteBottomSheet(
-        message: n.message,
-        onAccept: () async {
-          Navigator.pop(sheetCtx);
-          try {
-            final topicId = await ForumService.instance.acceptInvite(n.referenceId!);
-            if (ctx.mounted) {
-              Navigator.of(ctx).push(MaterialPageRoute(
-                builder: (_) => ForumTopicDetailScreen(
-                  topic: ForumTopic(
-                    id: topicId,
-                    title: '',
-                    excerpt: '',
-                    authorName: '',
-                    authorInitials: '?',
-                    category: TopicCategory.tudo,
-                    timeAgo: '',
-                    comments: 0,
-                    likes: 0,
-                  ),
-                ),
-              ));
-            }
-          } on ApiException catch (e) {
-            if (ctx.mounted) {
-              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(e.message)));
-            }
-          }
-        },
-        onReject: () async {
-          Navigator.pop(sheetCtx);
-          try {
-            await ForumService.instance.rejectInvite(n.referenceId!);
-          } on ApiException {
-            // falha silenciosa
-          }
-        },
-      ),
-    );
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AccessRequestDetailSheet(topicId: topicId),
+    ).then((result) {
+      if (!ctx.mounted || result == null) return;
+      if (result.approved) {
+        showAppToast(ctx, 'Pedido aprovado. O utilizador foi notificado.', type: AppToastType.success);
+        if (result.topicId > 0) {
+          Navigator.of(ctx).push(MaterialPageRoute(
+            builder: (_) => ForumTopicDetailScreen(
+              topic: ForumTopic(
+                id: result.topicId, title: '', excerpt: '', authorName: '',
+                authorInitials: '?', category: TopicCategory.tudo, timeAgo: '', comments: 0, likes: 0,
+              ),
+            ),
+          ));
+        }
+      } else {
+        showAppToast(ctx, 'Pedido rejeitado. O utilizador foi notificado.', type: AppToastType.info);
+      }
+    });
   }
 
   @override
@@ -716,32 +740,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _onTap(AppNotification n) async {
     if (!n.isRead) _markRead(n.id);
-    if (!n.isForumType) return;
 
-    // Convite — referenceId é o access_request_id
-    if (n.isInviteRef && n.referenceId != null) {
-      _showInviteSheet(n);
-      return;
+    // Pedido de acesso — só precisamos do topicId (requestId não vem na notificação)
+    if (n.isInviteRef) {
+      final topicId = n.accessRequestTopicId;
+      if (topicId != null) {
+        _showInviteSheet(topicId);
+        return;
+      }
+      // topicId não disponível — cai para navegação ao tópico
     }
 
-    // Comentário — referenceId é comment_id; resolver topic_id via API
-    if (n.isCommentRef && n.referenceId != null) {
+    // Sem referência de navegação
+    if (n.referenceId == null || n.referenceId! <= 0) return;
+
+    // Comentário — resolver topic_id via API
+    if (n.isCommentRef) {
       try {
         final ref = await ForumService.instance.getComment(n.referenceId!);
         if (!mounted) return;
         _navigateToTopic(ref.topicId, highlightCommentId: n.referenceId);
       } on ApiException catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-        }
+        if (mounted) showAppToast(context, e.message, type: AppToastType.error);
       }
       return;
     }
 
-    // Referência directa ao tópico (forum_topic)
-    final topicId = n.referenceId;
-    if (topicId == null || topicId <= 0) return;
-    _navigateToTopic(topicId);
+    // Qualquer outra notificação com referenceId → navega para o tópico
+    _navigateToTopic(n.referenceId!);
   }
 
   void _navigateToTopic(int topicId, {int? highlightCommentId}) {
@@ -766,37 +792,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  void _showInviteSheet(AppNotification n) {
-    showModalBottomSheet<void>(
+  void _showInviteSheet(int topicId) {
+    showModalBottomSheet<_AccessRequestResult>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetCtx) => _InviteBottomSheet(
-        message: n.message,
-        onAccept: () async {
-          Navigator.pop(sheetCtx);
-          try {
-            final topicId = await ForumService.instance.acceptInvite(n.referenceId!);
-            if (mounted) _navigateToTopic(topicId);
-          } on ApiException catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(e.message)),
-              );
-            }
-          }
-        },
-        onReject: () async {
-          Navigator.pop(sheetCtx);
-          try {
-            await ForumService.instance.rejectInvite(n.referenceId!);
-          } on ApiException {
-            // falha silenciosa
-          }
-        },
-      ),
-    );
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AccessRequestDetailSheet(topicId: topicId),
+    ).then((result) {
+      if (!mounted || result == null) return;
+      if (result.approved) {
+        showAppToast(context, 'Pedido aprovado. O utilizador foi notificado.', type: AppToastType.success);
+        if (result.topicId > 0) _navigateToTopic(result.topicId);
+      } else {
+        showAppToast(context, 'Pedido rejeitado. O utilizador foi notificado.', type: AppToastType.info);
+      }
+    });
   }
 
   @override
@@ -906,122 +916,283 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-// ── Invite Bottom Sheet ───────────────────────────────────────────────────────
+// ── Access request result ─────────────────────────────────────────────────────
 
-class _InviteBottomSheet extends StatefulWidget {
-  final String message;
-  final Future<void> Function() onAccept;
-  final Future<void> Function() onReject;
-
-  const _InviteBottomSheet({
-    required this.message,
-    required this.onAccept,
-    required this.onReject,
-  });
-
-  @override
-  State<_InviteBottomSheet> createState() => _InviteBottomSheetState();
+class _AccessRequestResult {
+  final bool approved;
+  final int topicId;
+  const _AccessRequestResult({required this.approved, required this.topicId});
 }
 
-class _InviteBottomSheetState extends State<_InviteBottomSheet> {
-  bool _loading = false;
+// ── Access Request Detail Sheet ───────────────────────────────────────────────
 
-  Future<void> _handle(Future<void> Function() action) async {
-    setState(() => _loading = true);
-    await action();
-    if (mounted) setState(() => _loading = false);
+class _AccessRequestDetailSheet extends StatefulWidget {
+  final int topicId;
+
+  const _AccessRequestDetailSheet({required this.topicId});
+
+  @override
+  State<_AccessRequestDetailSheet> createState() => _AccessRequestDetailSheetState();
+}
+
+class _AccessRequestDetailSheetState extends State<_AccessRequestDetailSheet> {
+  List<AccessRequestDetail> _requests = [];
+  bool _loading = true;
+  String? _loadError;
+  final Set<int> _actioning = {};
+  bool _anyApproved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRequests();
+  }
+
+  Future<void> _loadRequests() async {
+    try {
+      final list = await ForumService.instance.getAccessRequests(widget.topicId);
+      if (mounted) setState(() { _requests = list; _loading = false; });
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _loadError = e.message; _loading = false; });
+    }
+  }
+
+  Future<void> _approve(AccessRequestDetail req) async {
+    setState(() => _actioning.add(req.id));
+    try {
+      await ForumService.instance.approveAccessRequest(widget.topicId, req.id);
+      if (!mounted) return;
+      showAppToast(context, '${req.requesterName} aprovado(a).', type: AppToastType.success);
+      setState(() {
+        _actioning.remove(req.id);
+        _requests = _requests.where((r) => r.id != req.id).toList();
+        _anyApproved = true;
+      });
+      if (_requests.isEmpty) {
+        Navigator.pop(context, _AccessRequestResult(approved: true, topicId: widget.topicId));
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _actioning.remove(req.id));
+        showAppToast(context, e.message, type: AppToastType.error);
+      }
+    }
+  }
+
+  Future<void> _reject(AccessRequestDetail req) async {
+    setState(() => _actioning.add(req.id));
+    try {
+      await ForumService.instance.rejectAccessRequest(widget.topicId, req.id);
+      if (!mounted) return;
+      showAppToast(context, 'Pedido rejeitado.', type: AppToastType.info);
+      setState(() {
+        _actioning.remove(req.id);
+        _requests = _requests.where((r) => r.id != req.id).toList();
+      });
+      if (_requests.isEmpty) {
+        Navigator.pop(context, _anyApproved
+            ? _AccessRequestResult(approved: true, topicId: widget.topicId)
+            : _AccessRequestResult(approved: false, topicId: 0));
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _actioning.remove(req.id));
+        showAppToast(context, e.message, type: AppToastType.error);
+      }
+    }
+  }
+
+  String _formatDate(DateTime d) {
+    final dd = d.toLocal();
+    final day = dd.day.toString().padLeft(2, '0');
+    final month = dd.month.toString().padLeft(2, '0');
+    final hh = dd.hour.toString().padLeft(2, '0');
+    final min = dd.minute.toString().padLeft(2, '0');
+    return '$day/$month/${dd.year} às $hh:$min';
   }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFCBD5E1),
-                borderRadius: BorderRadius.circular(2),
+    final c = context.c;
+    return Container(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(color: c.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const SizedBox(height: 18),
+          // Header
+          Row(
+            children: [
+              Container(
+                width: 40, height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: c.winePill, borderRadius: BorderRadius.circular(10)),
+                child: Icon(Icons.person_add_alt_1_outlined, color: c.wine, size: 20),
               ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFEEF1),
-                borderRadius: BorderRadius.circular(14),
+              const SizedBox(width: 12),
+              Text(
+                'Pedidos de acesso',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: c.textMain),
               ),
-              child:
-                  const Icon(Icons.lock_open_outlined, color: AppColors.wine, size: 26),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Convite para tópico privado',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-                height: 1.45,
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          if (_loading)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                child: CircularProgressIndicator(color: c.wine, strokeWidth: 2),
               ),
-            ),
-            const SizedBox(height: 24),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: CircularProgressIndicator(color: AppColors.wine),
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _handle(widget.onReject),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textPrimary,
-                        side: const BorderSide(color: Color(0xFFCCCCCC)),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(50)),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            )
+          else if (_loadError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline, color: c.muted, size: 32),
+                    const SizedBox(height: 8),
+                    Text(_loadError!, style: TextStyle(color: c.muted, fontSize: 13)),
+                  ],
+                ),
+              ),
+            )
+          else if (_requests.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  'Não há pedidos pendentes.',
+                  style: TextStyle(color: c.muted, fontSize: 13),
+                ),
+              ),
+            )
+          else
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: _requests.length,
+                separatorBuilder: (_, _) => Divider(color: c.border, height: 24),
+                itemBuilder: (_, i) {
+                  final req = _requests[i];
+                  final isActioning = _actioning.contains(req.id);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Solicitante
+                      Row(
+                        children: [
+                          AppAvatar(
+                            initials: req.requesterInitials,
+                            size: 44,
+                            bg: req.avatarBg,
+                            fg: req.avatarFg,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  req.requesterName,
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: c.textMain),
+                                ),
+                                if (req.requesterRole.isNotEmpty)
+                                  Text(req.requesterRole, style: TextStyle(fontSize: 12, color: c.muted)),
+                              ],
+                            ),
+                          ),
+                          if (req.requestedAt != null)
+                            Text(
+                              _formatDate(req.requestedAt!),
+                              style: TextStyle(fontSize: 10, color: c.muted),
+                            ),
+                        ],
                       ),
-                      child: const Text('Recusar',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _handle(widget.onAccept),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.wine,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(50)),
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text('Aceitar',
-                          style: TextStyle(fontWeight: FontWeight.w700)),
-                    ),
-                  ),
-                ],
+                      // Motivação
+                      if (req.message.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: c.bg,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: c.border),
+                          ),
+                          child: Text(
+                            req.message,
+                            style: TextStyle(fontSize: 13, color: c.textSecondary, height: 1.5),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      // Botões
+                      if (isActioning)
+                        Center(child: CircularProgressIndicator(color: c.wine, strokeWidth: 2))
+                      else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _reject(req),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: c.textMain,
+                                  side: BorderSide(color: c.border),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+                                  padding: const EdgeInsets.symmetric(vertical: 11),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text('Rejeitar', style: TextStyle(fontWeight: FontWeight.w600)),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _approve(req),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: c.wine,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 11),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text('Aprovar', style: TextStyle(fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  );
+                },
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
 }
+

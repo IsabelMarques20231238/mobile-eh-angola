@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../services/auth_state.dart';
 import '../services/notification_state.dart';
 import '../theme/app_theme.dart';
@@ -504,13 +504,10 @@ class GoogleButton extends StatelessWidget {
       height: 38,
       child: OutlinedButton.icon(
         onPressed: onPressed,
-        icon: const Text(
-          'G',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF4285F4),
-          ),
+        icon: const FaIcon(
+          FontAwesomeIcons.google,
+          size: 16,
+          color: Color(0xFF4285F4),
         ),
         label: const Text('Continuar com Google'),
       ),
@@ -670,11 +667,19 @@ class BottomNavMock extends StatelessWidget {
   static const _labels = ['Feed', 'Fórum', 'Quiz', 'Subscrições', 'Perfil'];
 
   static const _icons = [
-    LucideIcons.house,
-    LucideIcons.messageSquare,
-    LucideIcons.circleHelp,
-    LucideIcons.share2,
-    LucideIcons.userRound,
+    FontAwesomeIcons.house,
+    FontAwesomeIcons.comments,
+    FontAwesomeIcons.circleQuestion,
+    FontAwesomeIcons.heart,
+    FontAwesomeIcons.user,
+  ];
+
+  static const _activeIcons = [
+    FontAwesomeIcons.solidHouse,
+    FontAwesomeIcons.solidComments,
+    FontAwesomeIcons.solidCircleQuestion,
+    FontAwesomeIcons.solidHeart,
+    FontAwesomeIcons.solidUser,
   ];
 
   @override
@@ -699,8 +704,8 @@ class BottomNavMock extends StatelessWidget {
       items: [
         for (var i = 0; i < _icons.length; i++)
           BottomNavigationBarItem(
-            icon: Icon(_icons[i], size: 22),
-            activeIcon: Icon(_icons[i], size: 27),
+            icon: FaIcon(_icons[i], size: 20),
+            activeIcon: FaIcon(_activeIcons[i], size: 22),
             label: _labels[i],
           ),
       ],

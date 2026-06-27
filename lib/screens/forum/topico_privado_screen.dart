@@ -106,9 +106,7 @@ class _TopicoPrivadoScreenState extends State<TopicoPrivadoScreen> {
     if (!AuthState.requireAuth(context)) return;
     final message = _reasonController.text.trim();
     if (message.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Escreve o motivo do teu pedido.')),
-      );
+      showAppToast(context, 'Escreve o motivo do teu pedido.', type: AppToastType.warning);
       return;
     }
     final topicId = widget.topic?.id;
@@ -118,12 +116,10 @@ class _TopicoPrivadoScreenState extends State<TopicoPrivadoScreen> {
       await ForumService.instance.requestAccess(topicId, message);
       if (!mounted) return;
       _reasonController.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pedido enviado ao moderador.')),
-      );
+      showAppToast(context, 'Pedido enviado ao moderador.', type: AppToastType.success);
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      showAppToast(context, e.message, type: AppToastType.error);
     } finally {
       if (mounted) setState(() => _isRequesting = false);
     }
@@ -133,20 +129,18 @@ class _TopicoPrivadoScreenState extends State<TopicoPrivadoScreen> {
     if (!AuthState.requireAuth(context)) return;
     final code = _codeControllers.map((c) => c.text).join().trim();
     if (code.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Introduz os 6 caracteres do código.')),
-      );
+      showAppToast(context, 'Introduz os 6 caracteres do código.', type: AppToastType.warning);
       return;
     }
     final topic = widget.topic;
     if (topic == null || topic.id <= 0) return;
     setState(() => _isJoining = true);
     try {
-      await ForumService.instance.joinWithCode(topic.id, code);
+      final joinedTopic = await ForumService.instance.joinWithCode(topic.id, code);
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => ForumTopicDetailScreen(topic: topic)),
+        MaterialPageRoute(builder: (_) => ForumTopicDetailScreen(topic: joinedTopic)),
       );
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -268,13 +262,14 @@ class _TopicSummaryCard extends StatelessWidget {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _SummaryStat(
-                icon: Icons.group_outlined,
-                label: '24 membros',
-              ),
+              if (topic.members > 0)
+                _SummaryStat(
+                  icon: Icons.group_outlined,
+                  label: '${topic.members} ${topic.members == 1 ? 'membro' : 'membros'}',
+                ),
               _SummaryStat(
                 icon: Icons.chat_bubble_outline_rounded,
-                label: '0 respostas',
+                label: '${topic.comments} ${topic.comments == 1 ? 'resposta' : 'respostas'}',
               ),
             ],
           ),
