@@ -166,6 +166,9 @@ class ApiClient {
         case 'PUT':
           response = await http.put(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(const Duration(seconds: 20));
           break;
+        case 'PATCH':
+          response = await http.patch(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(const Duration(seconds: 20));
+          break;
         case 'DELETE':
           response = await http.delete(uri, headers: headers).timeout(const Duration(seconds: 20));
           break;
