@@ -54,6 +54,7 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
   // Global-ranking state
   List<_Entry> _globalEntries = [];
   Map<String, dynamic>? _myGlobalPos;
+  String? _globalUpdatedAt;
   bool _globalLoading = false; // lazy — only loaded when tab is opened
   bool _globalLoaded = false;
   String? _globalError;
@@ -137,6 +138,7 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
           );
         }).toList();
         _myGlobalPos = result.myPosition;
+        _globalUpdatedAt = result.updatedAtHuman;
         _globalLoading = false;
         _globalLoaded = true;
       });
@@ -260,8 +262,28 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
     if (_globalError != null) {
       return _buildTabError(c, _globalError!, _loadGlobal);
     }
-    return _buildRankingList(c, _globalEntries, _myGlobalPos, 'GLOBAL',
-        onRefresh: _loadGlobal);
+    return Column(
+      children: [
+        if (_globalUpdatedAt != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Row(
+              children: [
+                Icon(Icons.update_rounded, size: 13, color: c.muted),
+                const SizedBox(width: 5),
+                Text(
+                  'Actualizado $_globalUpdatedAt',
+                  style: TextStyle(fontSize: 12, color: c.muted),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: _buildRankingList(c, _globalEntries, _myGlobalPos, 'GLOBAL',
+              onRefresh: _loadGlobal),
+        ),
+      ],
+    );
   }
 
   Widget _buildRankingList(
@@ -296,6 +318,9 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
     final top3 = entries.take(3).toList();
     final rest = entries.skip(3).toList();
 
+    final myPosNum = myPos?['position'] as int?;
+    final myInPodium = myPosNum != null && myPosNum <= 3;
+
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView(
@@ -306,7 +331,8 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
             const SizedBox(height: 16),
             _RankingTable(entries: rest),
           ],
-          if (myPos != null) ...[
+          // Only show card if user is NOT already highlighted in the podium
+          if (myPos != null && !myInPodium) ...[
             const SizedBox(height: 16),
             _MyPositionCard(myPos: myPos),
           ],
@@ -385,10 +411,25 @@ class _PodiumSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final isMe = entry.isCurrentUser;
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        if (rank == 1)
+        if (isMe)
+          Container(
+            margin: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.wine,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Text(
+              'VOCÊ',
+              style: TextStyle(
+                  color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900),
+            ),
+          )
+        else if (rank == 1)
           const FaIcon(FontAwesomeIcons.trophy, color: Color(0xFFEAB308), size: 24),
         const SizedBox(height: 4),
         Stack(
@@ -396,7 +437,7 @@ class _PodiumSlot extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: _radius,
-              backgroundColor: _avatarBg,
+              backgroundColor: isMe ? AppColors.wine : _avatarBg,
               child: Text(
                 entry.initials,
                 style: TextStyle(
@@ -426,11 +467,11 @@ class _PodiumSlot extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          entry.name,
+          isMe ? 'Você' : entry.name,
           style: TextStyle(
-            color: c.textMain,
+            color: isMe ? c.wine : c.textMain,
             fontSize: rank == 1 ? 14 : 13,
-            fontWeight: rank == 1 ? FontWeight.w800 : FontWeight.w600,
+            fontWeight: FontWeight.w800,
             height: 1.2,
           ),
           textAlign: TextAlign.center,
@@ -441,9 +482,9 @@ class _PodiumSlot extends StatelessWidget {
         Text(
           '${entry.institution.isNotEmpty ? '${entry.institution} · ' : ''}${entry.mainValue}',
           style: TextStyle(
-            color: rank == 1 ? AppColors.wine : c.muted,
+            color: isMe ? AppColors.wine : (rank == 1 ? AppColors.wine : c.muted),
             fontSize: 11,
-            fontWeight: rank == 1 ? FontWeight.w700 : FontWeight.w500,
+            fontWeight: (isMe || rank == 1) ? FontWeight.w700 : FontWeight.w500,
           ),
           textAlign: TextAlign.center,
           maxLines: 2,

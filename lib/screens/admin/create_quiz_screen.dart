@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/api_client.dart';
 import '../../services/quiz_service.dart';
 import '../../theme/app_theme.dart';
 import '../quiz/quiz_ai_generation_screen.dart';
 import '../quiz/quiz_submitted_screen.dart';
+
+// Display labels shown to creator; API labels sent to backend
+const _diffDisplay = ['Fácil', 'Médio', 'Difícil'];
+const _diffApi = ['EASY', 'MEDIUM', 'HARD'];
 
 class CreateQuizScreen extends StatefulWidget {
   const CreateQuizScreen({super.key});
@@ -15,58 +20,88 @@ class CreateQuizScreen extends StatefulWidget {
 class _CreateQuizScreenState extends State<CreateQuizScreen> {
   final _service = QuizService(ApiClient.instance);
   final _titleCtrl = TextEditingController();
-  final _topicCtrl = TextEditingController();
   final _contextCtrl = TextEditingController();
-  final _articleIdCtrl = TextEditingController();
 
   bool _aiMode = true;
-  int _difficulty = 1; // 0=Iniciante, 1=Médio, 2=Avançado
+  int _difficulty = 1;
   int _questionCount = 10;
+
+  List<Map<String, dynamic>> _categories = [];
+  int? _selectedCategoryId;
+  bool _loadingCategories = false;
+
+  Map<String, dynamic>? _selectedArticle;
+  final List<_ManualQuestion> _questions = [_ManualQuestion()];
   bool _submitting = false;
 
-  static const _diffLabels = ['Iniciante', 'Médio', 'Avançado'];
-
-  final List<_ManualQuestion> _questions = [_ManualQuestion()];
+  @override
+  void initState() {
+    super.initState();
+    _loadCategories();
+    _titleCtrl.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
     _titleCtrl.dispose();
-    _topicCtrl.dispose();
     _contextCtrl.dispose();
-    _articleIdCtrl.dispose();
-    for (final q in _questions) { q.dispose(); }
+    for (final q in _questions) {
+      q.dispose();
+    }
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    final title = _titleCtrl.text.trim();
-    if (title.isEmpty) {
-      _toast('Introduz o título do quiz.', error: true);
-      return;
-    }
-    final articleIdStr = _articleIdCtrl.text.trim();
-    final articleId = int.tryParse(articleIdStr);
-    if (articleId == null) {
-      _toast('Introduz um ID de artigo válido.', error: true);
-      return;
-    }
+  Future<void> _loadCategories() async {
+    setState(() => _loadingCategories = true);
+    _categories = await _service.getCategories();
+    if (mounted) setState(() => _loadingCategories = false);
+  }
 
-    // AI mode: navigate to the generation screen which handles the API call
-    if (_aiMode) {
-      final topic = _topicCtrl.text.trim();
-      if (topic.isEmpty) {
-        _toast('Introduz o tema principal.', error: true);
-        return;
+  bool get _canSubmit {
+    if (_submitting) return false;
+    if (_titleCtrl.text.trim().isEmpty) return false;
+    if (_selectedArticle == null) return false;
+    if (!_aiMode) {
+      if (_questions.isEmpty) return false;
+      for (final q in _questions) {
+        if (q.questionCtrl.text.trim().isEmpty) return false;
+        if (q.correctIndex < 0) return false;
+        if (q.explanationCtrl.text.trim().isEmpty) return false;
+        for (final opt in q.optionCtrls) {
+          if (opt.text.trim().isEmpty) return false;
+        }
       }
+    }
+    return true;
+  }
+
+  Future<void> _pickArticle() async {
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ArticleSearchSheet(service: _service),
+    );
+    if (result != null && mounted) setState(() => _selectedArticle = result);
+  }
+
+  Future<void> _submit() async {
+    if (!_canSubmit) return;
+    final title = _titleCtrl.text.trim();
+    final articleId = _selectedArticle!['id'] as int;
+    final articleTitle = _selectedArticle!['title']?.toString() ?? title;
+
+    if (_aiMode) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => QuizAIGenerationScreen(
             title: title,
-            topic: topic,
-            difficulty: _diffLabels[_difficulty],
+            topic: articleTitle,
+            difficulty: _diffApi[_difficulty],
             numQuestions: _questionCount,
             articleId: articleId,
+            categoryId: _selectedCategoryId,
             context: _contextCtrl.text.trim().isEmpty
                 ? null
                 : _contextCtrl.text.trim(),
@@ -76,25 +111,13 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
       return;
     }
 
-    // Validate manual questions before going async
-    for (int i = 0; i < _questions.length; i++) {
-      final q = _questions[i];
-      if (q.questionCtrl.text.trim().isEmpty) {
-        _toast('Pergunta ${i + 1} está vazia.', error: true);
-        return;
-      }
-      for (int j = 0; j < q.optionCtrls.length; j++) {
-        if (q.optionCtrls[j].text.trim().isEmpty) {
-          _toast('Preenche a opção ${j + 1} da pergunta ${i + 1}.', error: true);
-          return;
-        }
-      }
-    }
     final questions = _questions.map((q) {
-      final opts = q.optionCtrls.asMap().entries.map((e) => {
-            'text': e.value.text.trim(),
-            'is_correct': e.key == q.correctIndex,
-          }).toList();
+      final opts = q.optionCtrls.asMap().entries
+          .map((e) => {
+                'text': e.value.text.trim(),
+                'is_correct': e.key == q.correctIndex,
+              })
+          .toList();
       return {
         'text': q.questionCtrl.text.trim(),
         'explanation': q.explanationCtrl.text.trim(),
@@ -106,14 +129,11 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     try {
       final created = await _service.createQuiz({
         'title': title,
-        'description': _topicCtrl.text.trim().isEmpty
-            ? null
-            : _topicCtrl.text.trim(),
-        'difficulty': _diffLabels[_difficulty],
+        'difficulty': _diffApi[_difficulty],
         'article_id': articleId,
+        if (_selectedCategoryId != null) 'category_id': _selectedCategoryId,
         'questions': questions,
       });
-
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -122,30 +142,29 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
             title: created.title,
             difficulty: created.difficulty,
             questionCount: created.questionCount,
-            isAiGenerated: _aiMode,
+            isAiGenerated: false,
           ),
         ),
       );
     } on ApiException catch (e) {
-      if (mounted) _toast(e.message, error: true);
+      if (mounted) _showError(e.message);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
-  void _toast(String msg, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: error ? AppColors.error : AppColors.success,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: AppColors.error,
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final canSubmit = _canSubmit;
     return Scaffold(
       backgroundColor: c.card,
       appBar: AppBar(
@@ -162,24 +181,11 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
           style: TextStyle(
               color: c.wine, fontSize: 18, fontWeight: FontWeight.w900),
         ),
-        actions: [
-          TextButton(
-            onPressed: _submitting ? null : _submit,
-            child: Text(
-              'Guardar',
-              style: TextStyle(
-                  color: _submitting ? c.muted : c.wine,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800),
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 120),
         children: [
-          // Mode selector
+          // ── Mode toggle ────────────────────────────────────────────────
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -207,42 +213,45 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
             ),
           ),
           const SizedBox(height: 24),
+
+          // ── General info ───────────────────────────────────────────────
           _SectionTitle('INFORMAÇÕES GERAIS'),
           const SizedBox(height: 14),
-          _LabeledInput(
-            label: 'Título do quiz',
-            controller: _titleCtrl,
-            hint: _aiMode
-                ? 'Introduza o nome do quiz'
+
+          _FormLabel('Título do quiz *'),
+          const SizedBox(height: 8),
+          _buildTextField(
+            _titleCtrl,
+            _aiMode
+                ? 'Ex: Reforma Monetária de Angola'
                 : 'Ex: A Economia Cafeeira em Angola',
-          ),
-          const SizedBox(height: 14),
-          _LabeledInput(
-            label: _aiMode ? 'Tema principal' : 'Descrição (opcional)',
-            controller: _topicCtrl,
-            hint: _aiMode
-                ? 'Ex: Reforma Monetária 1999'
-                : 'Descrição do quiz...',
-          ),
-          const SizedBox(height: 14),
-          _LabeledInput(
-            label: 'ID do Artigo vinculado *',
-            controller: _articleIdCtrl,
-            hint: 'Ex: 5',
-            keyboardType: TextInputType.number,
+            c,
           ),
           const SizedBox(height: 16),
-          Text('Dificuldade',
-              style: TextStyle(
-                  color: c.textMain,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700)),
+
+          _FormLabel('Dificuldade'),
           const SizedBox(height: 8),
           _DifficultySelector(
             value: _difficulty,
             onChanged: (v) => setState(() => _difficulty = v),
           ),
-          // AI config
+          const SizedBox(height: 16),
+
+          _FormLabel('Categoria'),
+          const SizedBox(height: 8),
+          _CategoryDropdown(
+            categories: _categories,
+            loading: _loadingCategories,
+            selectedId: _selectedCategoryId,
+            onChanged: (id) => setState(() => _selectedCategoryId = id),
+          ),
+          const SizedBox(height: 16),
+
+          _FormLabel('Artigo vinculado *'),
+          const SizedBox(height: 8),
+          _ArticleField(article: _selectedArticle, onTap: _pickArticle),
+
+          // ── AI config ──────────────────────────────────────────────────
           if (_aiMode) ...[
             const SizedBox(height: 28),
             _SectionTitle('CONFIGURAÇÃO DA IA'),
@@ -250,51 +259,55 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'Número de perguntas',
-                    style: TextStyle(
-                        color: c.textMain,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700),
-                  ),
+                  child: _FormLabel('Número de perguntas'),
                 ),
                 Text(
                   '$_questionCount',
                   style: TextStyle(
-                      color: c.wine, fontSize: 18, fontWeight: FontWeight.w900),
+                      color: c.wine,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900),
                 ),
               ],
             ),
             Slider(
               value: _questionCount.toDouble(),
-              min: 5,
+              min: 1,
               max: 20,
-              divisions: 15,
+              divisions: 19,
               activeColor: AppColors.wine,
               inactiveColor: c.border,
               onChanged: (v) => setState(() => _questionCount = v.round()),
             ),
             const SizedBox(height: 12),
-            _LabeledInput(
-              label: 'Contexto adicional (opcional)',
-              controller: _contextCtrl,
-              hint: 'Ex: focar no período 1990–2000...',
+            _FormLabel('Contexto adicional (opcional)'),
+            const SizedBox(height: 8),
+            _buildTextField(
+              _contextCtrl,
+              'Ex: focar no período 1990–2000...',
+              c,
               minLines: 3,
+              maxLines: 6,
             ),
           ],
-          // Manual questions
+
+          // ── Manual questions ───────────────────────────────────────────
           if (!_aiMode) ...[
             const SizedBox(height: 28),
             Row(
               children: [
-                Text('Questões',
-                    style: TextStyle(
-                        color: c.wine,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800)),
+                Text(
+                  'Questões',
+                  style: TextStyle(
+                      color: c.wine,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800),
+                ),
                 const Spacer(),
-                Text('${_questions.length}/20',
-                    style: TextStyle(color: c.muted, fontSize: 13)),
+                Text(
+                  '${_questions.length}/20',
+                  style: TextStyle(color: c.muted, fontSize: 13),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -308,10 +321,10 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
                 onChanged: () => setState(() {}),
               ),
             ),
-            const SizedBox(height: 4),
             if (_questions.length < 20)
               GestureDetector(
-                onTap: () => setState(() => _questions.add(_ManualQuestion())),
+                onTap: () =>
+                    setState(() => _questions.add(_ManualQuestion())),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   decoration: BoxDecoration(
@@ -323,11 +336,13 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
                     children: [
                       Icon(Icons.add_rounded, color: c.wine, size: 18),
                       const SizedBox(width: 6),
-                      Text('Adicionar pergunta',
-                          style: TextStyle(
-                              color: c.wine,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600)),
+                      Text(
+                        'Adicionar pergunta',
+                        style: TextStyle(
+                            color: c.wine,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600),
+                      ),
                     ],
                   ),
                 ),
@@ -335,52 +350,447 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
           ],
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-          decoration: BoxDecoration(
-            color: context.c.card,
-            border: Border(top: BorderSide(color: context.c.border)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 56,
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.wine,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    elevation: 0,
-                    textStyle: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w800),
-                  ),
-                  child: _submitting
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : Text(_aiMode ? 'Gerar quiz com IA' : 'Criar Quiz'),
+      bottomNavigationBar: _BottomBar(
+        aiMode: _aiMode,
+        canSubmit: canSubmit,
+        submitting: _submitting,
+        onSubmit: _submit,
+      ),
+    );
+  }
+
+  Widget _buildTextField(
+    TextEditingController ctrl,
+    String hint,
+    AppAdaptiveColors c, {
+    int minLines = 1,
+    int maxLines = 1,
+  }) {
+    return TextField(
+      controller: ctrl,
+      minLines: minLines,
+      maxLines: maxLines,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: c.muted),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: c.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: c.border)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.wine)),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      ),
+    );
+  }
+}
+
+// ── Bottom action bar ─────────────────────────────────────────────────────────
+
+class _BottomBar extends StatelessWidget {
+  final bool aiMode;
+  final bool canSubmit;
+  final bool submitting;
+  final VoidCallback onSubmit;
+
+  const _BottomBar({
+    required this.aiMode,
+    required this.canSubmit,
+    required this.submitting,
+    required this.onSubmit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+        decoration: BoxDecoration(
+          color: c.card,
+          border: Border(top: BorderSide(color: c.border)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 56,
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: canSubmit ? onSubmit : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.wine,
+                  disabledBackgroundColor: c.border,
+                  disabledForegroundColor: c.muted,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                  elevation: 0,
+                  textStyle: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w800),
                 ),
+                child: submitting
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : Text(aiMode ? 'Gerar quiz com IA' : 'Criar Quiz'),
               ),
-              if (_aiMode) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'O quiz será enviado para aprovação antes de ser publicado.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.c.muted, fontSize: 11),
-                ),
-              ],
+            ),
+            if (aiMode) ...[
+              const SizedBox(height: 8),
+              Text(
+                'O quiz será enviado para aprovação antes de ser publicado.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: c.muted, fontSize: 11),
+              ),
             ],
-          ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+// ── Article field ─────────────────────────────────────────────────────────────
+
+class _ArticleField extends StatelessWidget {
+  final Map<String, dynamic>? article;
+  final VoidCallback onTap;
+  const _ArticleField({required this.article, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final title = article?['title']?.toString();
+    final selected = article != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: selected ? AppColors.wine : c.border,
+            width: selected ? 1.5 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          color: selected ? AppColors.wineBg : Colors.transparent,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected ? Icons.article_rounded : Icons.search_rounded,
+              size: 18,
+              color: selected ? AppColors.wine : c.muted,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title ?? 'Pesquisar e seleccionar artigo...',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? c.textMain : c.muted,
+                  fontSize: 14,
+                  fontWeight:
+                      selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              selected
+                  ? Icons.check_circle_rounded
+                  : Icons.chevron_right_rounded,
+              size: 18,
+              color: selected ? AppColors.wine : c.muted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Article search bottom sheet ───────────────────────────────────────────────
+
+class _ArticleSearchSheet extends StatefulWidget {
+  final QuizService service;
+  const _ArticleSearchSheet({required this.service});
+
+  @override
+  State<_ArticleSearchSheet> createState() => _ArticleSearchSheetState();
+}
+
+class _ArticleSearchSheetState extends State<_ArticleSearchSheet> {
+  final _ctrl = TextEditingController();
+  List<Map<String, dynamic>> _results = [];
+  bool _loading = false;
+  bool _initialLoad = true;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _search('');
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onChanged(String v) {
+    _debounce?.cancel();
+    _debounce =
+        Timer(const Duration(milliseconds: 400), () => _search(v));
+  }
+
+  Future<void> _search(String query) async {
+    if (!mounted) return;
+    setState(() => _loading = true);
+    final results = await widget.service.searchArticles(query);
+    if (mounted) {
+      setState(() {
+        _results = results;
+        _loading = false;
+        _initialLoad = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final sheetHeight = MediaQuery.of(context).size.height * 0.85;
+
+    return Container(
+      height: sheetHeight,
+      decoration: BoxDecoration(
+        color: c.card,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Drag handle
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 6),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: c.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Seleccionar artigo',
+                  style: TextStyle(
+                      color: c.textMain,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _ctrl,
+                  autofocus: true,
+                  onChanged: _onChanged,
+                  decoration: InputDecoration(
+                    hintText: 'Pesquisar artigo...',
+                    hintStyle: TextStyle(color: c.muted, fontSize: 14),
+                    prefixIcon:
+                        Icon(Icons.search_rounded, color: c.muted, size: 20),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: c.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: c.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: AppColors.wine),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    filled: true,
+                    fillColor: c.bg,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_loading)
+            const Expanded(
+              child: Center(
+                child: CircularProgressIndicator(
+                    color: AppColors.wine, strokeWidth: 2),
+              ),
+            )
+          else if (_results.isEmpty)
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.article_outlined, size: 40, color: c.border),
+                    const SizedBox(height: 12),
+                    Text(
+                      _initialLoad || _ctrl.text.isEmpty
+                          ? 'Escreva para pesquisar artigos'
+                          : 'Nenhum artigo encontrado',
+                      style: TextStyle(color: c.muted, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                itemCount: _results.length,
+                separatorBuilder: (_, _) =>
+                    Divider(color: c.border, height: 1),
+                itemBuilder: (ctx, i) {
+                  final art = _results[i];
+                  final artTitle = art['title']?.toString() ?? '';
+                  final catName = art['category'] is Map
+                      ? (art['category'] as Map)['name']?.toString()
+                      : art['category_name']?.toString();
+                  return ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(vertical: 6),
+                    leading: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.wineBg,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.article_rounded,
+                          color: AppColors.wine, size: 20),
+                    ),
+                    title: Text(
+                      artTitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: c.textMain),
+                    ),
+                    subtitle: catName != null && catName.isNotEmpty
+                        ? Text(catName,
+                            style:
+                                TextStyle(fontSize: 11, color: c.muted))
+                        : null,
+                    onTap: () => Navigator.pop(ctx, art),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Category dropdown ─────────────────────────────────────────────────────────
+
+class _CategoryDropdown extends StatelessWidget {
+  final List<Map<String, dynamic>> categories;
+  final bool loading;
+  final int? selectedId;
+  final ValueChanged<int?> onChanged;
+
+  const _CategoryDropdown({
+    required this.categories,
+    required this.loading,
+    required this.selectedId,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    if (loading) {
+      return Container(
+        height: 50,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          border: Border.all(color: c.border),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: c.muted),
+            ),
+            const SizedBox(width: 10),
+            Text('A carregar categorias...',
+                style: TextStyle(color: c.muted, fontSize: 14)),
+          ],
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<int?>(
+      initialValue: selectedId,
+      dropdownColor: c.card,
+      style: TextStyle(color: c.textMain, fontSize: 14),
+      icon: Icon(Icons.keyboard_arrow_down_rounded, color: c.muted),
+      decoration: InputDecoration(
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: c.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: c.border)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppColors.wine)),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        isDense: true,
+      ),
+      items: [
+        DropdownMenuItem<int?>(
+          value: null,
+          child: Text(
+            'Seleccionar categoria (opcional)',
+            style: TextStyle(color: c.muted, fontSize: 14),
+          ),
+        ),
+        ...categories.map((cat) => DropdownMenuItem<int?>(
+              value: cat['id'] as int?,
+              child: Text(
+                cat['name']?.toString() ?? '',
+                style: TextStyle(color: c.textMain, fontSize: 14),
+              ),
+            )),
+      ],
+      onChanged: onChanged,
     );
   }
 }
@@ -392,12 +802,14 @@ class _ManualQuestion {
   final TextEditingController explanationCtrl = TextEditingController();
   final List<TextEditingController> optionCtrls =
       List.generate(4, (_) => TextEditingController());
-  int correctIndex = 0;
+  int correctIndex = -1; // -1 = none selected yet (required)
 
   void dispose() {
     questionCtrl.dispose();
     explanationCtrl.dispose();
-    for (final c in optionCtrls) { c.dispose(); }
+    for (final c in optionCtrls) {
+      c.dispose();
+    }
   }
 }
 
@@ -434,6 +846,7 @@ class _QuestionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               Text(
@@ -453,12 +866,27 @@ class _QuestionCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          _field(question.questionCtrl, 'Escreva a pergunta...', c,
+
+          // Question text
+          _field(question.questionCtrl, 'Escreva a pergunta... *', c,
               minLines: 2, maxLines: 4),
           const SizedBox(height: 8),
-          _field(question.explanationCtrl, 'Explicação da resposta correcta...', c,
+
+          // Explanation (required)
+          _field(question.explanationCtrl,
+              'Explicação da resposta correcta... *', c,
               minLines: 2, maxLines: 3),
           const SizedBox(height: 10),
+
+          // Options with correct radio
+          Text(
+            'Marque a opção correcta *',
+            style: TextStyle(
+                fontSize: 11,
+                color: c.muted,
+                fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
           ...List.generate(question.optionCtrls.length, (i) {
             final isCorrect = question.correctIndex == i;
             return Padding(
@@ -474,11 +902,13 @@ class _QuestionCard extends StatelessWidget {
                       width: 22,
                       height: 22,
                       decoration: BoxDecoration(
-                        color:
-                            isCorrect ? AppColors.wine : Colors.transparent,
+                        color: isCorrect
+                            ? AppColors.wine
+                            : Colors.transparent,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: isCorrect ? AppColors.wine : c.border,
+                          color:
+                              isCorrect ? AppColors.wine : c.border,
                           width: 2,
                         ),
                       ),
@@ -495,7 +925,8 @@ class _QuestionCard extends StatelessWidget {
                       onChanged: (_) => onChanged(),
                       decoration: InputDecoration(
                         hintText: '${_letters[i]}. Opção...',
-                        hintStyle: TextStyle(color: c.muted, fontSize: 13),
+                        hintStyle:
+                            TextStyle(color: c.muted, fontSize: 13),
                         filled: true,
                         fillColor: c.card,
                         border: OutlineInputBorder(
@@ -508,8 +939,11 @@ class _QuestionCard extends StatelessWidget {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide:
-                              const BorderSide(color: AppColors.wine),
+                          borderSide: BorderSide(
+                            color: isCorrect
+                                ? AppColors.success
+                                : AppColors.wine,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 10),
@@ -593,7 +1027,8 @@ class _ModeCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppColors.wineBg : c.bg,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: selected ? AppColors.wine : c.border),
+          border:
+              Border.all(color: selected ? AppColors.wine : c.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -602,7 +1037,8 @@ class _ModeCard extends StatelessWidget {
             Row(
               children: [
                 Icon(icon,
-                    color: selected ? AppColors.wine : c.muted, size: 22),
+                    color: selected ? AppColors.wine : c.muted,
+                    size: 22),
                 const Spacer(),
                 Icon(
                   selected
@@ -653,63 +1089,30 @@ class _SectionTitle extends StatelessWidget {
       );
 }
 
-class _LabeledInput extends StatelessWidget {
-  final String label;
-  final TextEditingController controller;
-  final String? hint;
-  final int minLines;
-  final TextInputType? keyboardType;
-
-  const _LabeledInput({
-    required this.label,
-    required this.controller,
-    this.hint,
-    this.minLines = 1,
-    this.keyboardType,
-  });
+class _FormLabel extends StatelessWidget {
+  final String text;
+  const _FormLabel(this.text);
 
   @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: TextStyle(
-                color: c.textMain, fontSize: 14, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          minLines: minLines,
-          maxLines: minLines == 1 ? 1 : 5,
-          keyboardType: keyboardType,
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: c.muted),
-            border:
-                OutlineInputBorder(borderSide: BorderSide(color: c.border)),
-            enabledBorder:
-                OutlineInputBorder(borderSide: BorderSide(color: c.border)),
-            focusedBorder: const OutlineInputBorder(
-                borderSide: BorderSide(color: AppColors.wine)),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          ),
+  Widget build(BuildContext context) => Text(
+        text,
+        style: TextStyle(
+          color: context.c.textMain,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
         ),
-      ],
-    );
-  }
+      );
 }
 
 class _DifficultySelector extends StatelessWidget {
   final int value;
   final ValueChanged<int> onChanged;
-  const _DifficultySelector({required this.value, required this.onChanged});
+  const _DifficultySelector(
+      {required this.value, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    const labels = ['Iniciante', 'Médio', 'Avançado'];
     return Container(
       height: 42,
       decoration: BoxDecoration(
@@ -718,7 +1121,7 @@ class _DifficultySelector extends StatelessWidget {
       ),
       child: Row(
         children: [
-          for (var i = 0; i < labels.length; i++) ...[
+          for (var i = 0; i < _diffDisplay.length; i++)
             Expanded(
               child: GestureDetector(
                 onTap: () => onChanged(i),
@@ -728,11 +1131,23 @@ class _DifficultySelector extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: value == i ? c.card : Colors.transparent,
                     borderRadius: BorderRadius.circular(4),
+                    boxShadow: value == i
+                        ? [
+                            BoxShadow(
+                              color:
+                                  Colors.black.withValues(alpha: 0.06),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            )
+                          ]
+                        : null,
                   ),
                   child: Text(
-                    labels[i],
+                    _diffDisplay[i],
                     style: TextStyle(
-                      color: value == i ? AppColors.wine : c.textSecondary,
+                      color: value == i
+                          ? AppColors.wine
+                          : c.textSecondary,
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
                     ),
@@ -740,7 +1155,6 @@ class _DifficultySelector extends StatelessWidget {
                 ),
               ),
             ),
-          ],
         ],
       ),
     );

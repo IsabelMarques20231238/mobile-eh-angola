@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/api_client.dart';
 import '../../services/quiz_service.dart';
 import '../../theme/app_theme.dart';
-import 'quiz_submitted_screen.dart';
+import 'quiz_ai_review_screen.dart';
 
 class QuizAIGenerationScreen extends StatefulWidget {
   final String topic;
@@ -11,6 +11,7 @@ class QuizAIGenerationScreen extends StatefulWidget {
   final String difficulty;
   final int numQuestions;
   final int? articleId;
+  final int? categoryId;
   final String? context;
 
   const QuizAIGenerationScreen({
@@ -20,6 +21,7 @@ class QuizAIGenerationScreen extends StatefulWidget {
     this.difficulty = 'Médio',
     this.numQuestions = 10,
     this.articleId,
+    this.categoryId,
     this.context,
   });
 
@@ -66,12 +68,12 @@ class _QuizAIGenerationScreenState extends State<QuizAIGenerationScreen> {
   }
 
   void _startProgressAnimation() {
+    // Advance slowly to 90% over ~120s (0.0015 per 200ms tick ≈ 90% in ~120s)
     _progressTimer = Timer.periodic(const Duration(milliseconds: 200), (t) {
       if (_cancelled || !mounted) { t.cancel(); return; }
       setState(() {
-        // Progress up to 90% while waiting for API; API response pushes to 100%
         if (_progress < 0.9) {
-          _progress += 0.008;
+          _progress += 0.0015;
           final targetStep = (_progress * _steps.length).floor();
           _stepIndex = targetStep.clamp(0, _steps.length - 1);
         }
@@ -87,6 +89,7 @@ class _QuizAIGenerationScreenState extends State<QuizAIGenerationScreen> {
         difficulty: widget.difficulty,
         numQuestions: widget.numQuestions,
         articleId: widget.articleId,
+        categoryId: widget.categoryId,
         context: widget.context,
       );
       if (!mounted || _cancelled) return;
@@ -100,18 +103,17 @@ class _QuizAIGenerationScreenState extends State<QuizAIGenerationScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => QuizSubmittedScreen(
-            title: quiz.title,
-            difficulty: quiz.difficulty,
-            questionCount: quiz.questionCount,
-            isAiGenerated: true,
-          ),
+          builder: (_) => QuizAIReviewScreen(quiz: quiz),
         ),
       );
     } on ApiException catch (e) {
       if (!mounted || _cancelled) return;
       _progressTimer?.cancel();
-      setState(() => _error = e.message);
+      final isNetworkError = e.message.toLowerCase().contains('contactar') ||
+          e.message.toLowerCase().contains('timeout');
+      setState(() => _error = isNetworkError
+          ? 'A geração demorou mais do esperado. A IA pode estar ocupada — tenta novamente.'
+          : e.message);
     }
   }
 

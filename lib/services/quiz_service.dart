@@ -69,6 +69,23 @@ class QuizService {
 
   // ── Play ───────────────────────────────────────────────────────────────────
 
+  Future<Map<String, dynamic>> answerQuestion(
+    int quizId,
+    int questionId,
+    int answerOptionId,
+  ) async {
+    final payload = await _api.post(
+      '/quizzes/$quizId/answer',
+      body: {
+        'question_id': questionId,
+        'answer_option_id': answerOptionId,
+      },
+      authenticated: true,
+    );
+    if (payload is Map<String, dynamic>) return payload;
+    throw const ApiException('Erro ao verificar resposta.');
+  }
+
   Future<QuizAttemptModel> submitQuiz(
     int id,
     List<Map<String, int>> answers,
@@ -105,17 +122,18 @@ class QuizService {
     return (ranking: list, myPosition: myPos);
   }
 
-  Future<({List<GlobalRankingItemModel> ranking, Map<String, dynamic>? myPosition})>
+  Future<({List<GlobalRankingItemModel> ranking, Map<String, dynamic>? myPosition, String? updatedAtHuman})>
       getGlobalRanking() async {
     final payload = await _api.get('/quiz-ranking/global', authenticated: true);
     if (payload is! Map<String, dynamic>) {
-      return (ranking: <GlobalRankingItemModel>[], myPosition: null);
+      return (ranking: <GlobalRankingItemModel>[], myPosition: null, updatedAtHuman: null);
     }
     final list = (payload['ranking'] as List? ?? [])
         .map((e) => GlobalRankingItemModel.fromJson(_jsonMap(e as Map)))
         .toList();
     final myPos = payload['my_position'] as Map<String, dynamic>?;
-    return (ranking: list, myPosition: myPos);
+    final updatedAt = payload['updated_at_human'] as String?;
+    return (ranking: list, myPosition: myPos, updatedAtHuman: updatedAt);
   }
 
   // ── Creation ───────────────────────────────────────────────────────────────
@@ -143,6 +161,7 @@ class QuizService {
       '/quizzes/generate-ai',
       body: body,
       authenticated: true,
+      timeout: const Duration(seconds: 120),
     );
     if (payload is Map<String, dynamic>) return QuizModel.fromJson(payload);
     throw const ApiException('Erro ao gerar quiz com IA.');
@@ -161,6 +180,30 @@ class QuizService {
         .whereType<Map>()
         .map((e) => QuizModel.fromJson(_jsonMap(e)))
         .toList();
+  }
+
+  // ── Categories & article search ───────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> getCategories() async {
+    try {
+      final payload = await _api.get('/categories', authenticated: true);
+      return _payloadList(payload).whereType<Map>().map(_jsonMap).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> searchArticles(String query) async {
+    try {
+      final payload = await _api.get('/contents', query: {
+        'search': query.isEmpty ? null : query,
+        'type': 'ARTICLE',
+        'status': 'PUBLISHED',
+      }, authenticated: true);
+      return _payloadList(payload).whereType<Map>().map(_jsonMap).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   // ── Admin review ───────────────────────────────────────────────────────────

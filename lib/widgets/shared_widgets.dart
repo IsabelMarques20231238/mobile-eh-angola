@@ -580,9 +580,9 @@ class _AppDialog extends StatelessWidget {
         ),
       AppDialogType.warning => (
           Icons.warning_amber_rounded,
-          const Color(0xFFB45309),
-          const Color(0xFFFEF3C7),
-          const Color(0xFFB45309),
+          const Color(0xFF7B1D45),
+          const Color(0xFFFDF0F5),
+          const Color(0xFF7B1D45),
         ),
       AppDialogType.info => (
           Icons.info_outline_rounded,

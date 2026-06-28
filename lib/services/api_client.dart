@@ -60,24 +60,24 @@ class ApiClient {
     await prefs.remove(_tokenKey);
   }
 
-  Future<dynamic> get(String path, {Map<String, String?> query = const {}, bool authenticated = false}) {
-    return _send('GET', path, query: query, authenticated: authenticated);
+  Future<dynamic> get(String path, {Map<String, String?> query = const {}, bool authenticated = false, Duration timeout = const Duration(seconds: 20)}) {
+    return _send('GET', path, query: query, authenticated: authenticated, timeout: timeout);
   }
 
-  Future<dynamic> post(String path, {Map<String, dynamic>? body, bool authenticated = false}) {
-    return _send('POST', path, body: body, authenticated: authenticated);
+  Future<dynamic> post(String path, {Map<String, dynamic>? body, bool authenticated = false, Duration timeout = const Duration(seconds: 20)}) {
+    return _send('POST', path, body: body, authenticated: authenticated, timeout: timeout);
   }
 
-  Future<dynamic> put(String path, {Map<String, dynamic>? body, bool authenticated = false}) {
-    return _send('PUT', path, body: body, authenticated: authenticated);
+  Future<dynamic> put(String path, {Map<String, dynamic>? body, bool authenticated = false, Duration timeout = const Duration(seconds: 20)}) {
+    return _send('PUT', path, body: body, authenticated: authenticated, timeout: timeout);
   }
 
-  Future<dynamic> patch(String path, {Map<String, dynamic>? body, bool authenticated = false}) {
-    return _send('PATCH', path, body: body, authenticated: authenticated);
+  Future<dynamic> patch(String path, {Map<String, dynamic>? body, bool authenticated = false, Duration timeout = const Duration(seconds: 20)}) {
+    return _send('PATCH', path, body: body, authenticated: authenticated, timeout: timeout);
   }
 
-  Future<dynamic> delete(String path, {bool authenticated = false}) {
-    return _send('DELETE', path, authenticated: authenticated);
+  Future<dynamic> delete(String path, {bool authenticated = false, Duration timeout = const Duration(seconds: 20)}) {
+    return _send('DELETE', path, authenticated: authenticated, timeout: timeout);
   }
 
   Future<String> uploadImage(String filePath) async {
@@ -130,6 +130,7 @@ class ApiClient {
     Map<String, String?> query = const {},
     Map<String, dynamic>? body,
     bool authenticated = false,
+    Duration timeout = const Duration(seconds: 20),
   }) async {
     final filteredQuery = {
       for (final entry in query.entries)
@@ -158,19 +159,19 @@ class ApiClient {
     try {
       switch (method) {
         case 'GET':
-          response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+          response = await http.get(uri, headers: headers).timeout(timeout);
           break;
         case 'POST':
-          response = await http.post(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(const Duration(seconds: 20));
+          response = await http.post(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(timeout);
           break;
         case 'PUT':
-          response = await http.put(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(const Duration(seconds: 20));
+          response = await http.put(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(timeout);
           break;
         case 'PATCH':
-          response = await http.patch(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(const Duration(seconds: 20));
+          response = await http.patch(uri, headers: headers, body: body == null ? null : jsonEncode(body)).timeout(timeout);
           break;
         case 'DELETE':
-          response = await http.delete(uri, headers: headers).timeout(const Duration(seconds: 20));
+          response = await http.delete(uri, headers: headers).timeout(timeout);
           break;
         default:
           throw ArgumentError('Metodo HTTP nao suportado: $method');

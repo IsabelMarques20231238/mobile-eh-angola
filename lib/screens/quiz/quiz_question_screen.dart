@@ -7,6 +7,28 @@ import '../../widgets/shared_widgets.dart';
 import 'quiz_models.dart';
 import 'quiz_result_screen.dart';
 
+// Holds the API response from POST /quizzes/{id}/answer.
+// isCorrect == null means the backend failed — answer was still recorded locally.
+class _AnswerFeedback {
+  final bool? isCorrect;
+  final int? correctOptionId;
+  final String? explanation;
+
+  const _AnswerFeedback({
+    this.isCorrect,
+    this.correctOptionId,
+    this.explanation,
+  });
+
+  factory _AnswerFeedback.fromJson(Map<String, dynamic> json) {
+    return _AnswerFeedback(
+      isCorrect: json['is_correct'] as bool?,
+      correctOptionId: json['correct_option_id'] as int?,
+      explanation: json['explanation'] as String?,
+    );
+  }
+}
+
 class QuizQuestionScreen extends StatefulWidget {
   final QuizModel quiz;
   const QuizQuestionScreen({super.key, required this.quiz});
@@ -20,9 +42,9 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
 
   int _currentIndex = 0;
   int? _selectedOptionId;
-  // null = not yet confirmed; true/false = confirmed correct/wrong
-  bool? _isCorrect;
-  bool _submitting = false;
+  _AnswerFeedback? _feedback; // null = not yet confirmed
+  bool _confirming = false;   // waiting for /answer API call
+  bool _submitting = false;   // waiting for /submit API call
   int _secondsElapsed = 0;
   Timer? _timer;
 
@@ -49,33 +71,42 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
   QuestionModel get _currentQuestion => widget.quiz.questions[_currentIndex];
   int get _totalQuestions => widget.quiz.questions.length;
   double get _progress => (_currentIndex + 1) / _totalQuestions;
-  bool get _confirmed => _isCorrect != null;
+  bool get _confirmed => _feedback != null;
   String get _formattedTime => formatSeconds(_secondsElapsed);
 
-  AnswerOptionModel? get _correctOption =>
-      _currentQuestion.options.where((o) => o.isCorrect == true).firstOrNull;
-
-  String? get _feedbackText {
-    if (_currentQuestion.explanation?.isNotEmpty == true) {
-      return _currentQuestion.explanation;
-    }
-    return _correctOption?.explanation;
-  }
-
   void _selectOption(int optionId) {
-    if (_confirmed) return;
+    if (_confirmed || _confirming) return;
     setState(() => _selectedOptionId = optionId);
   }
 
-  void _confirm() {
-    if (_selectedOptionId == null) return;
-    final selected =
-        _currentQuestion.options.firstWhere((o) => o.id == _selectedOptionId);
+  Future<void> _confirm() async {
+    if (_selectedOptionId == null || _confirming) return;
+
+    setState(() => _confirming = true);
+    // Pre-record locally so the final submit always has this answer
     _answers.add({
       'question_id': _currentQuestion.id,
       'answer_option_id': _selectedOptionId!,
     });
-    setState(() => _isCorrect = selected.isCorrect ?? false);
+    try {
+      final json = await _service.answerQuestion(
+        widget.quiz.id,
+        _currentQuestion.id,
+        _selectedOptionId!,
+      );
+      if (!mounted) return;
+      setState(() {
+        _feedback = _AnswerFeedback.fromJson(json);
+        _confirming = false;
+      });
+    } catch (_) {
+      // Backend unavailable for this quiz — show neutral state so user can proceed
+      if (!mounted) return;
+      setState(() {
+        _feedback = const _AnswerFeedback(); // isCorrect == null
+        _confirming = false;
+      });
+    }
   }
 
   Future<void> _next() async {
@@ -83,7 +114,7 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
       setState(() {
         _currentIndex++;
         _selectedOptionId = null;
-        _isCorrect = null;
+        _feedback = null;
       });
     } else {
       await _submit();
@@ -254,7 +285,24 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
   Widget _buildOption(AnswerOptionModel option, int index, AppAdaptiveColors c) {
     final letter = String.fromCharCode(65 + index);
     final isSelected = _selectedOptionId == option.id;
-    final isCorrectOpt = option.isCorrect == true;
+    final fb = _feedback;
+
+    // Determine visual state
+    bool isCorrectSlot = false;
+    bool isWrongSlot = false;
+
+    if (fb != null) {
+      final known = fb.isCorrect; // null = no feedback from backend
+      if (fb.correctOptionId != null) {
+        isCorrectSlot = option.id == fb.correctOptionId;
+        isWrongSlot = isSelected && known != true && option.id != fb.correctOptionId;
+      } else if (known == true && isSelected) {
+        isCorrectSlot = true;
+      } else if (known == false && isSelected) {
+        isWrongSlot = true;
+      }
+      // known == null: keep options neutral (no green/red)
+    }
 
     Color cardBg = c.card;
     Color cardBorder = c.border;
@@ -273,25 +321,22 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
         borderWidth = 1.5;
       }
     } else {
-      if (isCorrectOpt) {
+      if (isCorrectSlot) {
         cardBg = AppColors.successLight;
         cardBorder = AppColors.success;
         letterBg = AppColors.success;
         letterFg = Colors.white;
         textColor = AppColors.success;
         borderWidth = 1.5;
-        trailing =
-            const Icon(Icons.check_rounded, color: AppColors.success, size: 18);
-      } else if (isSelected) {
-        // Selected wrong answer
+        trailing = const Icon(Icons.check_rounded, color: AppColors.success, size: 18);
+      } else if (isWrongSlot) {
         cardBg = AppColors.errorLight;
         cardBorder = AppColors.error;
         letterBg = AppColors.error;
         letterFg = Colors.white;
         textColor = AppColors.error;
         borderWidth = 1.5;
-        trailing =
-            const Icon(Icons.close_rounded, color: AppColors.error, size: 18);
+        trailing = const Icon(Icons.close_rounded, color: AppColors.error, size: 18);
       } else {
         cardBorder = c.border.withValues(alpha: 0.4);
         letterFg = c.muted;
@@ -315,15 +360,12 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
             Container(
               width: 28,
               height: 28,
-              decoration:
-                  BoxDecoration(color: letterBg, shape: BoxShape.circle),
+              decoration: BoxDecoration(color: letterBg, shape: BoxShape.circle),
               alignment: Alignment.center,
               child: Text(
                 letter,
                 style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: letterFg),
+                    fontSize: 13, fontWeight: FontWeight.w700, color: letterFg),
               ),
             ),
             const SizedBox(width: 12),
@@ -333,7 +375,7 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
                 style: TextStyle(
                   fontSize: 14,
                   color: textColor,
-                  fontWeight: (isSelected || isCorrectOpt) && _confirmed
+                  fontWeight: (isCorrectSlot || isWrongSlot)
                       ? FontWeight.w600
                       : FontWeight.w400,
                 ),
@@ -348,33 +390,40 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
 
   Widget _buildBottomSection(AppAdaptiveColors c) {
     final isLast = _currentIndex == _totalQuestions - 1;
-    final correct = _isCorrect == true;
+    final fb = _feedback;
+    // null = no feedback (backend error) → use wine; true = green; false = red
+    final Color btnColor;
+    if (!_confirmed) {
+      btnColor = AppColors.wine;
+    } else if (fb?.isCorrect == true) {
+      btnColor = AppColors.success;
+    } else if (fb?.isCorrect == false) {
+      btnColor = AppColors.error;
+    } else {
+      btnColor = AppColors.wine; // neutral when unknown
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Feedback panel — appears after confirming
         AnimatedSize(
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
-          child: _confirmed ? _buildFeedbackPanel(c, correct) : const SizedBox.shrink(),
+          child: fb != null ? _buildFeedbackPanel(fb, c) : const SizedBox.shrink(),
         ),
-        // Action button
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: SizedBox(
             width: double.infinity,
             height: 52,
             child: ElevatedButton(
-              onPressed: _submitting
+              onPressed: _submitting || _confirming
                   ? null
                   : _confirmed
                       ? _next
                       : (_selectedOptionId != null ? _confirm : null),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _confirmed
-                    ? (correct ? AppColors.success : AppColors.error)
-                    : AppColors.wine,
+                backgroundColor: btnColor,
                 disabledBackgroundColor: c.border,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
@@ -383,7 +432,7 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
                 textStyle: const TextStyle(
                     fontSize: 15, fontWeight: FontWeight.w700),
               ),
-              child: _submitting
+              child: (_confirming || _submitting)
                   ? const SizedBox(
                       width: 20,
                       height: 20,
@@ -399,21 +448,45 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
     );
   }
 
-  Widget _buildFeedbackPanel(AppAdaptiveColors c, bool correct) {
-    final bg = correct ? AppColors.successLight : AppColors.errorLight;
-    final borderColor = correct ? AppColors.success : AppColors.error;
-    final color = correct ? AppColors.success : AppColors.error;
-    final icon = correct ? Icons.check_circle_rounded : Icons.cancel_rounded;
-    final label = correct ? 'Resposta correcta!' : 'Resposta Incorrecta!';
-    final text = _feedbackText;
+  Widget _buildFeedbackPanel(_AnswerFeedback fb, AppAdaptiveColors c) {
+    final known = fb.isCorrect;
+
+    // Neutral fallback when backend didn't return feedback
+    if (known == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+        decoration: BoxDecoration(
+          color: c.bg,
+          border: Border(top: BorderSide(color: c.border)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline_rounded, color: c.muted, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Resposta registada',
+              style: TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w700, color: c.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final bg = known ? AppColors.successLight : AppColors.errorLight;
+    final borderColor = known ? AppColors.success : AppColors.error;
+    final color = known ? AppColors.success : AppColors.error;
+    final icon = known ? Icons.check_circle_rounded : Icons.cancel_rounded;
+    final label = known ? 'Resposta correcta!' : 'Resposta Incorrecta!';
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
       decoration: BoxDecoration(
         color: bg,
-        border: Border(
-            top: BorderSide(color: borderColor.withValues(alpha: 0.35))),
+        border:
+            Border(top: BorderSide(color: borderColor.withValues(alpha: 0.35))),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -426,20 +499,18 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
               Text(
                 label,
                 style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: color),
+                    fontSize: 15, fontWeight: FontWeight.w800, color: color),
               ),
             ],
           ),
-          if (text != null && text.isNotEmpty) ...[
+          if (fb.explanation != null && fb.explanation!.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
-              text,
+              fb.explanation!,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
-              style:
-                  TextStyle(fontSize: 13, color: c.textSecondary, height: 1.4),
+              style: TextStyle(
+                  fontSize: 13, color: c.textSecondary, height: 1.4),
             ),
           ],
         ],
