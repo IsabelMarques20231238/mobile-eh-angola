@@ -256,7 +256,7 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
                     children: [
                       // My position card at the TOP
                       if (_myQuizPos != null) ...[
-                        _MyPositionCard(myPos: _myQuizPos!, entries: _quizEntries),
+                        _MyPositionCard(myPos: _myQuizPos!, entries: _quizEntries, scope: 'do quiz'),
                         const SizedBox(height: 16),
                       ],
                       // Full table — no podium, all positions
@@ -346,7 +346,7 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
           // Only show card if user is NOT already highlighted in the podium
           if (myPos != null && !myInPodium) ...[
             const SizedBox(height: 16),
-            _MyPositionCard(myPos: myPos),
+            _MyPositionCard(myPos: myPos, entries: entries, scope: 'do global'),
           ],
         ],
       ),
@@ -792,10 +792,14 @@ class _StatRow extends StatelessWidget {
 
 class _MyPositionCard extends StatelessWidget {
   final Map<String, dynamic> myPos;
-  // When provided, renders the rich quiz design with name + percentile message
   final List<_Entry>? entries;
+  final String scope;
 
-  const _MyPositionCard({required this.myPos, this.entries});
+  const _MyPositionCard({
+    required this.myPos,
+    this.entries,
+    this.scope = 'do quiz',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -823,7 +827,7 @@ class _MyPositionCard extends StatelessWidget {
       String? perfMsg;
       if (posNum != null && entries!.isNotEmpty) {
         final topPct = ((posNum / entries!.length) * 100).round();
-        perfMsg = 'Estás no top $topPct% da tua turma';
+        perfMsg = 'Estás no top $topPct% $scope';
       }
 
       return Container(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../../main.dart' show routeObserver;
 import '../../screens/notifications/notifications_screen.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_state.dart';
@@ -18,7 +19,8 @@ class QuizListScreen extends StatefulWidget {
   State<QuizListScreen> createState() => _QuizListScreenState();
 }
 
-class _QuizListScreenState extends State<QuizListScreen> {
+class _QuizListScreenState extends State<QuizListScreen>
+    with RouteAware {
   final _service = QuizService(ApiClient.instance);
   final _searchController = TextEditingController();
 
@@ -37,10 +39,26 @@ class _QuizListScreenState extends State<QuizListScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     _searchController.dispose();
     super.dispose();
   }
+
+  // Called when a route above this one was popped (e.g. came back from quiz detail).
+  @override
+  void didPopNext() => _load();
+
+  // Called when this route was pushed (e.g. switching tabs via pushReplacementNamed).
+  // initState already handles the initial load; this covers re-entries after replacement.
+  @override
+  void didPush() => _load();
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
@@ -455,26 +473,28 @@ class _QuizHero extends StatelessWidget {
             listenable: AuthState.instance,
             builder: (ctx, _) {
               final canCreate = AuthState.instance.canCreateQuiz;
+              final isAdmin = AuthState.instance.isAdmin;
               return Row(
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: onRanking,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: c.textMain,
-                        side: BorderSide(color: c.border),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(50)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text(
-                        'Ver ranking global',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  if (!isAdmin)
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onRanking,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: c.textMain,
+                          side: BorderSide(color: c.border),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(50)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text(
+                          'Ver ranking global',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
                       ),
                     ),
-                  ),
                   if (canCreate) ...[
-                    const SizedBox(width: 12),
+                    if (!isAdmin) const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
                         onPressed: onCreate,

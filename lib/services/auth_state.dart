@@ -18,6 +18,11 @@ class AuthState extends ChangeNotifier {
     return 'Membro';
   }
 
+  bool get isAdmin {
+    final roles = _user?.roles ?? [];
+    return roles.any((r) => r == 'SUPER_ADMIN' || r == 'ADMIN');
+  }
+
   bool get canCreateQuiz {
     final roles = _user?.roles ?? [];
     return roles.any((r) => r == 'SUPER_ADMIN' || r == 'ADMIN' || r == 'AUTHOR');

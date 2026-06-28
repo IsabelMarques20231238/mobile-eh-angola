@@ -70,7 +70,7 @@ class _QuizDetailScreenState extends State<QuizDetailScreen> {
         context,
         MaterialPageRoute(builder: (_) => QuizQuestionScreen(quiz: full)),
       ).then((_) {
-        if (mounted) _fetchAttempts();
+        if (mounted) _loadData();
       });
     } on ApiException catch (e) {
       if (mounted) showAppToast(context, e.message, type: AppToastType.error);
@@ -396,6 +396,15 @@ class _QuizDetailScreenState extends State<QuizDetailScreen> {
                     fontWeight: FontWeight.w600,
                     color: c.textMain)),
           ),
+          if (r.timeSpentSeconds != null) ...[
+            Icon(Icons.timer_outlined, size: 12, color: c.muted),
+            const SizedBox(width: 3),
+            Text(
+              formatSeconds(r.timeSpentSeconds),
+              style: TextStyle(fontSize: 12, color: c.muted),
+            ),
+            const SizedBox(width: 8),
+          ],
           Text('${r.score}/${r.totalQuestions}',
               style: TextStyle(
                   fontSize: 13,

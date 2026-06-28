@@ -143,6 +143,8 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
             difficulty: created.difficulty,
             questionCount: created.questionCount,
             isAiGenerated: false,
+            status: created.status,
+            quiz: created.status == 'APPROVED' ? created : null,
           ),
         ),
       );
@@ -272,9 +274,9 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
             ),
             Slider(
               value: _questionCount.toDouble(),
-              min: 1,
+              min: 3,
               max: 20,
-              divisions: 19,
+              divisions: 17,
               activeColor: AppColors.wine,
               inactiveColor: c.border,
               onChanged: (v) => setState(() => _questionCount = v.round()),

@@ -7,6 +7,11 @@ import 'services/theme_state.dart';
 import 'services/websocket_service.dart';
 import 'theme/app_theme.dart';
 
+/// Global observer — screens subscribe via RouteAware to detect when they
+/// come back into focus after another route was pushed on top of them.
+final RouteObserver<ModalRoute<void>> routeObserver =
+    RouteObserver<ModalRoute<void>>();
+
 void main() {
   runApp(const EconomiaHistoriaApp());
 }
@@ -24,6 +29,7 @@ class EconomiaHistoriaApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeState.instance.mode,
+        navigatorObservers: [routeObserver],
         home: const _AppLoader(),
         onGenerateRoute: AppRoutes.generateRoute,
       ),

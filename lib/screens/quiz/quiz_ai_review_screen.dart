@@ -34,14 +34,17 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
     setState(() => _submitting = true);
     await Future.delayed(const Duration(milliseconds: 300));
     if (!mounted) return;
+    final q = widget.quiz;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => QuizSubmittedScreen(
-          title: widget.quiz.title,
-          difficulty: widget.quiz.difficulty,
-          questionCount: widget.quiz.questionCount,
+          title: q.title,
+          difficulty: q.difficulty,
+          questionCount: q.questionCount,
           isAiGenerated: true,
+          status: q.status,
+          quiz: q.status == 'APPROVED' ? q : null,
         ),
       ),
     );

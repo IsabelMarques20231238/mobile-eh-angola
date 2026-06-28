@@ -697,7 +697,7 @@ class BottomNavMock extends StatelessWidget {
       unselectedItemColor: c.muted,
       showSelectedLabels: true,
       showUnselectedLabels: true,
-      selectedFontSize: 11,
+      selectedFontSize: 12,
       unselectedFontSize: 10,
       selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800),
       type: BottomNavigationBarType.fixed,
@@ -705,7 +705,7 @@ class BottomNavMock extends StatelessWidget {
         for (var i = 0; i < _icons.length; i++)
           BottomNavigationBarItem(
             icon: FaIcon(_icons[i], size: 20),
-            activeIcon: FaIcon(_activeIcons[i], size: 22),
+            activeIcon: FaIcon(_activeIcons[i], size: 26),
             label: _labels[i],
           ),
       ],
