@@ -4,7 +4,7 @@ import '../../services/api_client.dart';
 import '../../services/quiz_service.dart';
 import '../../theme/app_theme.dart';
 import '../quiz/quiz_ai_generation_screen.dart';
-import '../quiz/quiz_submitted_screen.dart';
+import '../quiz/quiz_ai_review_screen.dart';
 
 // Display labels shown to creator; API labels sent to backend
 const _diffDisplay = ['Fácil', 'Médio', 'Difícil'];
@@ -20,6 +20,7 @@ class CreateQuizScreen extends StatefulWidget {
 class _CreateQuizScreenState extends State<CreateQuizScreen> {
   final _service = QuizService(ApiClient.instance);
   final _titleCtrl = TextEditingController();
+  final _descriptionCtrl = TextEditingController();
   final _contextCtrl = TextEditingController();
 
   bool _aiMode = true;
@@ -44,6 +45,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
   @override
   void dispose() {
     _titleCtrl.dispose();
+    _descriptionCtrl.dispose();
     _contextCtrl.dispose();
     for (final q in _questions) {
       q.dispose();
@@ -102,6 +104,9 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
             numQuestions: _questionCount,
             articleId: articleId,
             categoryId: _selectedCategoryId,
+            description: _descriptionCtrl.text.trim().isEmpty
+                ? null
+                : _descriptionCtrl.text.trim(),
             context: _contextCtrl.text.trim().isEmpty
                 ? null
                 : _contextCtrl.text.trim(),
@@ -127,8 +132,10 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
 
     setState(() => _submitting = true);
     try {
+      final desc = _descriptionCtrl.text.trim();
       final created = await _service.createQuiz({
         'title': title,
+        if (desc.isNotEmpty) 'description': desc,
         'difficulty': _diffApi[_difficulty],
         'article_id': articleId,
         if (_selectedCategoryId != null) 'category_id': _selectedCategoryId,
@@ -138,14 +145,8 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => QuizSubmittedScreen(
-            title: created.title,
-            difficulty: created.difficulty,
-            questionCount: created.questionCount,
-            isAiGenerated: false,
-            status: created.status,
-            quiz: created.status == 'APPROVED' ? created : null,
-          ),
+          builder: (_) =>
+              QuizAIReviewScreen(quiz: created, isAiGenerated: false),
         ),
       );
     } on ApiException catch (e) {
@@ -228,6 +229,17 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
                 ? 'Ex: Reforma Monetária de Angola'
                 : 'Ex: A Economia Cafeeira em Angola',
             c,
+          ),
+          const SizedBox(height: 16),
+
+          _FormLabel('Descrição (opcional)'),
+          const SizedBox(height: 8),
+          _buildTextField(
+            _descriptionCtrl,
+            'Ex: Testa os teus conhecimentos sobre a economia angolana...',
+            c,
+            minLines: 2,
+            maxLines: 4,
           ),
           const SizedBox(height: 16),
 

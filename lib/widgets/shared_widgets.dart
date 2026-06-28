@@ -485,16 +485,17 @@ class _AppToastWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: c.card,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: cfg.borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
-            blurRadius: 16,
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 20,
             offset: const Offset(0, 6),
           ),
         ],
@@ -514,8 +515,8 @@ class _AppToastWidget extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(
-                color: Color(0xFF151114),
+              style: TextStyle(
+                color: c.textMain,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 height: 1.4,

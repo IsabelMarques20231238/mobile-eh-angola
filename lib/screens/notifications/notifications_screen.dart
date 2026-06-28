@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../models/forum_models.dart';
 import '../../screens/forum/forum_topic_detail_screen.dart';
+import '../../screens/quiz/quiz_admin_approval_screen.dart';
+import '../../screens/quiz/quiz_ai_review_screen.dart';
+import '../../screens/quiz/quiz_detail_screen.dart';
 import '../../services/api_client.dart';
 import '../../services/forum_service.dart';
 import '../../services/notification_state.dart';
+import '../../services/quiz_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -193,6 +197,7 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
   List<AppNotification> _notifications = [];
   bool _loading = true;
   String? _error;
+  final _quizService = QuizService(ApiClient.instance);
 
   int get _unreadCount => _notifications.where((n) => !n.isRead).length;
 
@@ -276,7 +281,64 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
   Future<void> _onTap(AppNotification n) async {
     if (!n.isRead) _markRead(n.id);
 
-    // Pedido de acesso — só precisamos do topicId (requestId não vem na notificação)
+    // ── Quiz notifications ─────────────────────────────────────────────────────
+    if (n.type.startsWith('QUIZ_')) {
+      if (n.referenceId == null) return;
+      final quizId = n.referenceId!;
+      if (n.type == 'QUIZ_PENDING_REVIEW') {
+        _closeAndRun(() => Navigator.of(widget.outerContext).push(
+          MaterialPageRoute(
+            builder: (_) => QuizAdminApprovalScreen(quizId: quizId),
+          ),
+        ));
+      } else if (n.type == 'QUIZ_APPROVED') {
+        try {
+          final quiz = await _quizService.getQuiz(quizId);
+          if (!mounted) return;
+          _closeAndRun(() => Navigator.of(widget.outerContext).push(
+            MaterialPageRoute(builder: (_) => QuizDetailScreen(quiz: quiz)),
+          ));
+        } catch (_) {
+          if (mounted) _closeAndRun(() {});
+        }
+      } else if (n.type == 'QUIZ_REJECTED') {
+        final msg = n.message;
+        final oc = widget.outerContext;
+        try {
+          final quiz = await _quizService.getQuiz(quizId);
+          if (!mounted) return;
+          final s = quiz.status.toUpperCase();
+          if (s == 'APPROVED') {
+            _closeAndRun(() => showAppToast(oc,
+                'Este quiz já foi aprovado e publicado.',
+                type: AppToastType.success));
+          } else if (s == 'PENDING') {
+            _closeAndRun(() => showAppToast(oc,
+                'Este quiz já foi submetido e aguarda revisão.',
+                type: AppToastType.info));
+          } else {
+            _closeAndRun(() => showModalBottomSheet(
+              context: oc,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => _QuizRejectedSheet(
+                quizId: quizId,
+                message: msg,
+                outerContext: oc,
+              ),
+            ));
+          }
+        } on ApiException {
+          if (!mounted) return;
+          _closeAndRun(() => showAppToast(oc,
+              'Este quiz já não está disponível.',
+              type: AppToastType.info));
+        }
+      }
+      return;
+    }
+
+    // ── Pedido de acesso ───────────────────────────────────────────────────────
     if (n.isInviteRef) {
       final topicId = n.accessRequestTopicId;
       if (topicId != null) {
@@ -662,6 +724,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<AppNotification> _notifications = [];
   bool _loading = true;
   String? _error;
+  final _quizService = QuizService(ApiClient.instance);
 
   static const _filters = ['Tudo', 'Fórum', 'Quiz', 'Conteúdo', 'Outros'];
 
@@ -741,14 +804,64 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _onTap(AppNotification n) async {
     if (!n.isRead) _markRead(n.id);
 
-    // Pedido de acesso — só precisamos do topicId (requestId não vem na notificação)
+    // ── Quiz notifications ─────────────────────────────────────────────────────
+    if (n.type.startsWith('QUIZ_')) {
+      if (n.referenceId == null) return;
+      final quizId = n.referenceId!;
+      if (n.type == 'QUIZ_PENDING_REVIEW') {
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => QuizAdminApprovalScreen(quizId: quizId),
+        ));
+      } else if (n.type == 'QUIZ_APPROVED') {
+        try {
+          final quiz = await _quizService.getQuiz(quizId);
+          if (!mounted) return;
+          Navigator.push(context, MaterialPageRoute(
+            builder: (_) => QuizDetailScreen(quiz: quiz),
+          ));
+        } catch (_) {}
+      } else if (n.type == 'QUIZ_REJECTED') {
+        try {
+          final quiz = await _quizService.getQuiz(quizId);
+          if (!mounted) return;
+          final s = quiz.status.toUpperCase();
+          if (s == 'APPROVED') {
+            showAppToast(context,
+                'Este quiz já foi aprovado e publicado.',
+                type: AppToastType.success);
+          } else if (s == 'PENDING') {
+            showAppToast(context,
+                'Este quiz já foi submetido e aguarda revisão.',
+                type: AppToastType.info);
+          } else {
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => _QuizRejectedSheet(
+                quizId: quizId,
+                message: n.message,
+                outerContext: context,
+              ),
+            );
+          }
+        } on ApiException {
+          if (!mounted) return;
+          showAppToast(context,
+              'Este quiz já não está disponível.',
+              type: AppToastType.info);
+        }
+      }
+      return;
+    }
+
+    // ── Pedido de acesso ───────────────────────────────────────────────────────
     if (n.isInviteRef) {
       final topicId = n.accessRequestTopicId;
       if (topicId != null) {
         _showInviteSheet(topicId);
         return;
       }
-      // topicId não disponível — cai para navegação ao tópico
     }
 
     // Sem referência de navegação
@@ -1191,6 +1304,205 @@ class _AccessRequestDetailSheetState extends State<_AccessRequestDetailSheet> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Quiz rejection sheet ──────────────────────────────────────────────────────
+
+class _QuizRejectedSheet extends StatefulWidget {
+  final int quizId;
+  final String message;
+  final BuildContext outerContext;
+
+  const _QuizRejectedSheet({
+    required this.quizId,
+    required this.message,
+    required this.outerContext,
+  });
+
+  @override
+  State<_QuizRejectedSheet> createState() => _QuizRejectedSheetState();
+}
+
+class _QuizRejectedSheetState extends State<_QuizRejectedSheet> {
+  final _service = QuizService(ApiClient.instance);
+  bool _loading = false;
+
+  Future<void> _editQuiz() async {
+    setState(() => _loading = true);
+    try {
+      final quiz = await _service.getQuiz(widget.quizId);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      if (widget.outerContext.mounted) {
+        Navigator.of(widget.outerContext).push(MaterialPageRoute(
+          builder: (_) =>
+              QuizAIReviewScreen(quiz: quiz, isAiGenerated: quiz.isAiGenerated),
+        ));
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        showAppToast(context, e.message, type: AppToastType.error);
+      }
+    }
+  }
+
+  Future<void> _deleteQuiz() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apagar quiz?'),
+        content: const Text('Esta acção é permanente e não pode ser revertida.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Apagar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      await _service.deleteQuiz(widget.quizId);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      if (widget.outerContext.mounted) {
+        showAppToast(widget.outerContext, 'Quiz apagado com sucesso.',
+            type: AppToastType.success);
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        showAppToast(context, e.message, type: AppToastType.error);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        decoration: BoxDecoration(
+          color: c.card,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: c.border, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.cancel_outlined,
+                      color: AppColors.error, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Quiz Rejeitado',
+                      style: TextStyle(
+                          color: c.textMain,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900),
+                    ),
+                    Text(
+                      'O teu quiz não foi aprovado.',
+                      style: TextStyle(color: c.muted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+                border:
+                    Border.all(color: AppColors.error.withValues(alpha: 0.2)),
+              ),
+              child: Text(
+                widget.message,
+                style: TextStyle(
+                    color: c.textSecondary, fontSize: 13, height: 1.5),
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (_loading)
+              const Center(
+                  child: CircularProgressIndicator(color: AppColors.wine))
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _editQuiz,
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Editar Quiz'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.wine,
+                        side: const BorderSide(color: AppColors.wine),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        textStyle: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _deleteQuiz,
+                      icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                      label: const Text('Apagar Quiz'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                        side: const BorderSide(color: AppColors.error),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        textStyle: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }

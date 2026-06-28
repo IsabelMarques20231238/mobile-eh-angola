@@ -146,6 +146,7 @@ class QuizService {
     required int numQuestions,
     int? categoryId,
     int? articleId,
+    String? description,
     String? context,
   }) async {
     final body = <String, dynamic>{
@@ -156,6 +157,7 @@ class QuizService {
     };
     if (categoryId != null) body['category_id'] = categoryId;
     if (articleId != null) body['article_id'] = articleId;
+    if (description != null && description.isNotEmpty) body['description'] = description;
     if (context != null && context.isNotEmpty) body['context'] = context;
 
     final payload = await _api.post(
@@ -173,6 +175,17 @@ class QuizService {
         await _api.post('/quizzes', body: body, authenticated: true);
     if (payload is Map<String, dynamic>) return QuizModel.fromJson(payload);
     throw const ApiException('Erro ao criar quiz.');
+  }
+
+  /// Submits a DRAFT quiz for editorial review (AUTHOR only).
+  /// Calls PUT /api/quizzes/{id}/submit → returns updated QuizModel (status PENDING).
+  Future<QuizModel> submitDraftForReview(int id) async {
+    final payload = await _api.put(
+      '/quizzes/$id/submit',
+      authenticated: true,
+    );
+    if (payload is Map<String, dynamic>) return QuizModel.fromJson(payload);
+    throw const ApiException('Erro ao submeter o quiz para revisão.');
   }
 
   Future<List<QuizModel>> getMyQuizzes() async {
@@ -214,6 +227,10 @@ class QuizService {
         await _api.get('/admin/quizzes/$id/review', authenticated: true);
     if (payload is Map<String, dynamic>) return QuizModel.fromJson(payload);
     throw const ApiException('Quiz não encontrado.');
+  }
+
+  Future<void> deleteQuiz(int id) async {
+    await _api.delete('/quizzes/$id', authenticated: true);
   }
 
   Future<void> adminApprove(int id) async {

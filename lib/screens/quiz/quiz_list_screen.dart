@@ -473,28 +473,26 @@ class _QuizHero extends StatelessWidget {
             listenable: AuthState.instance,
             builder: (ctx, _) {
               final canCreate = AuthState.instance.canCreateQuiz;
-              final isAdmin = AuthState.instance.isAdmin;
               return Row(
                 children: [
-                  if (!isAdmin)
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: onRanking,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: c.textMain,
-                          side: BorderSide(color: c.border),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(50)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text(
-                          'Ver ranking global',
-                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                        ),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: onRanking,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: c.textMain,
+                        side: BorderSide(color: c.border),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(50)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Ranking global',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                       ),
                     ),
+                  ),
                   if (canCreate) ...[
-                    if (!isAdmin) const SizedBox(width: 12),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
                         onPressed: onCreate,

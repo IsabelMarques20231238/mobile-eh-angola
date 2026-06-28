@@ -182,7 +182,7 @@ class QuizModel {
       attemptsCount: json['attempts_count'] as int? ?? 0,
       avgScore: (json['avg_score'] as num?)?.toDouble() ?? 0,
       rewardPoints: json['reward_points'] as int? ?? 0,
-      isAiGenerated: json['is_ai_generated'] as bool? ?? false,
+      isAiGenerated: (json['is_ai_generated'] ?? json['generated_by_ai']) as bool? ?? false,
       coverImageUrl: json['cover_image_url'] as String?,
       status: json['status'] as String? ?? 'APPROVED',
       isNew: json['is_new'] as bool? ?? false,

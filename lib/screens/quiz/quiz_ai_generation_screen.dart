@@ -12,6 +12,7 @@ class QuizAIGenerationScreen extends StatefulWidget {
   final int numQuestions;
   final int? articleId;
   final int? categoryId;
+  final String? description;
   final String? context;
 
   const QuizAIGenerationScreen({
@@ -22,6 +23,7 @@ class QuizAIGenerationScreen extends StatefulWidget {
     this.numQuestions = 10,
     this.articleId,
     this.categoryId,
+    this.description,
     this.context,
   });
 
@@ -90,6 +92,7 @@ class _QuizAIGenerationScreenState extends State<QuizAIGenerationScreen> {
         numQuestions: widget.numQuestions,
         articleId: widget.articleId,
         categoryId: widget.categoryId,
+        description: widget.description,
         context: widget.context,
       );
       if (!mounted || _cancelled) return;
@@ -100,11 +103,11 @@ class _QuizAIGenerationScreenState extends State<QuizAIGenerationScreen> {
       });
       await Future.delayed(const Duration(milliseconds: 600));
       if (!mounted || _cancelled) return;
+
+      // Always go to review — user must inspect AI content before it goes live
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => QuizAIReviewScreen(quiz: quiz),
-        ),
+        MaterialPageRoute(builder: (_) => QuizAIReviewScreen(quiz: quiz)),
       );
     } on ApiException catch (e) {
       if (!mounted || _cancelled) return;

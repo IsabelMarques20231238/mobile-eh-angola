@@ -363,6 +363,8 @@ class _QuizDetailScreenState extends State<QuizDetailScreen> {
   }
 
   Widget _rankingRow(RankingItemModel r, AppAdaptiveColors c) {
+    final isAdmin = AuthState.instance.isAdmin;
+    final showTime = isAdmin || r.timeSpentSeconds != null;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -396,11 +398,13 @@ class _QuizDetailScreenState extends State<QuizDetailScreen> {
                     fontWeight: FontWeight.w600,
                     color: c.textMain)),
           ),
-          if (r.timeSpentSeconds != null) ...[
+          if (showTime) ...[
             Icon(Icons.timer_outlined, size: 12, color: c.muted),
             const SizedBox(width: 3),
             Text(
-              formatSeconds(r.timeSpentSeconds),
+              r.timeSpentSeconds != null
+                  ? formatSeconds(r.timeSpentSeconds)
+                  : '--',
               style: TextStyle(fontSize: 12, color: c.muted),
             ),
             const SizedBox(width: 8),

@@ -1,17 +1,28 @@
 import 'package:flutter/material.dart';
+import '../../routes/app_routes.dart';
+import '../../services/api_client.dart';
+import '../../services/auth_state.dart';
+import '../../services/quiz_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 import 'quiz_models.dart';
 import 'quiz_submitted_screen.dart';
 
 class QuizAIReviewScreen extends StatefulWidget {
   final QuizModel quiz;
-  const QuizAIReviewScreen({super.key, required this.quiz});
+  final bool isAiGenerated;
+  const QuizAIReviewScreen({
+    super.key,
+    required this.quiz,
+    this.isAiGenerated = true,
+  });
 
   @override
   State<QuizAIReviewScreen> createState() => _QuizAIReviewScreenState();
 }
 
 class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
+  final _service = QuizService(ApiClient.instance);
   late final List<_ReviewQ> _questions;
   int? _editingIndex;
   bool _submitting = false;
@@ -32,22 +43,37 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
 
   Future<void> _submit() async {
     setState(() => _submitting = true);
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
-    final q = widget.quiz;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => QuizSubmittedScreen(
-          title: q.title,
-          difficulty: q.difficulty,
-          questionCount: q.questionCount,
-          isAiGenerated: true,
-          status: q.status,
-          quiz: q.status == 'APPROVED' ? q : null,
-        ),
-      ),
-    );
+    try {
+      if (widget.quiz.status == 'APPROVED') {
+        // ADMIN — quiz already published; no extra API call needed
+        if (!mounted) return;
+        showAppToast(context, 'Quiz publicado com sucesso!',
+            type: AppToastType.success);
+        Navigator.pushNamedAndRemoveUntil(
+            context, AppRoutes.quizList, (r) => false);
+      } else {
+        // AUTHOR — submit DRAFT for editorial review → becomes PENDING
+        final submitted =
+            await _service.submitDraftForReview(widget.quiz.id);
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => QuizSubmittedScreen(
+              title: submitted.title,
+              difficulty: submitted.difficulty,
+              questionCount: submitted.questionCount,
+              isAiGenerated: widget.isAiGenerated,
+              status: submitted.status,
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      showAppToast(context, e.message, type: AppToastType.error);
+    }
   }
 
   @override
@@ -73,10 +99,10 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
         children: [
-          _QuizInfoCard(quiz: widget.quiz),
+          _QuizInfoCard(quiz: widget.quiz, isAiGenerated: widget.isAiGenerated),
           const SizedBox(height: 20),
           Text(
-            'PERGUNTAS GERADAS',
+            widget.isAiGenerated ? 'PERGUNTAS GERADAS' : 'PERGUNTAS',
             style: TextStyle(
               color: c.textSecondary,
               fontSize: 12,
@@ -133,7 +159,9 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
                           height: 22,
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white))
-                      : const Text('Submeter para Avaliação'),
+                      : Text(AuthState.instance.isAdmin
+                          ? 'Publicar Quiz'
+                          : 'Submeter para Avaliação'),
                 ),
               ),
               const SizedBox(height: 6),
@@ -198,7 +226,8 @@ class _ReviewQ {
 
 class _QuizInfoCard extends StatelessWidget {
   final QuizModel quiz;
-  const _QuizInfoCard({required this.quiz});
+  final bool isAiGenerated;
+  const _QuizInfoCard({required this.quiz, this.isAiGenerated = true});
 
   Color _diffColor() {
     final d = quiz.difficulty.toLowerCase();
@@ -238,11 +267,15 @@ class _QuizInfoCard extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.auto_awesome_rounded,
-                    color: AppColors.wine, size: 12),
+                Icon(
+                    isAiGenerated
+                        ? Icons.auto_awesome_rounded
+                        : Icons.edit_note_rounded,
+                    color: AppColors.wine,
+                    size: 12),
                 const SizedBox(width: 5),
                 Text(
-                  'QUIZ GERADO POR IA',
+                  isAiGenerated ? 'QUIZ GERADO POR IA' : 'QUIZ CRIADO MANUALMENTE',
                   style: TextStyle(
                     color: AppColors.wine,
                     fontSize: 10,
