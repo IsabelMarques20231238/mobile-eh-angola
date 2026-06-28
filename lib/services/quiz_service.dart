@@ -83,7 +83,8 @@ class QuizService {
       authenticated: true,
     );
     if (payload is Map<String, dynamic>) return payload;
-    throw const ApiException('Erro ao verificar resposta.');
+    // Some backends return the body directly as a list or primitive — guard here
+    throw const ApiException('Resposta inesperada do servidor.');
   }
 
   Future<QuizAttemptModel> submitQuiz(

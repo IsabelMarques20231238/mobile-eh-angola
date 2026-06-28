@@ -69,7 +69,9 @@ class _QuizDetailScreenState extends State<QuizDetailScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => QuizQuestionScreen(quiz: full)),
-      );
+      ).then((_) {
+        if (mounted) _fetchAttempts();
+      });
     } on ApiException catch (e) {
       if (mounted) showAppToast(context, e.message, type: AppToastType.error);
     } finally {

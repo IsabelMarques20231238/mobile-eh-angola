@@ -21,10 +21,29 @@ class _AnswerFeedback {
   });
 
   factory _AnswerFeedback.fromJson(Map<String, dynamic> json) {
+    // Unwrap Laravel-style { "data": { ... } } if present
+    final d = json['data'] is Map<String, dynamic>
+        ? json['data'] as Map<String, dynamic>
+        : json;
+
+    // is_correct may arrive as bool, int (0/1), or string ("true"/"false")
+    bool? parseCorrect(dynamic v) {
+      if (v == true || v == 1 || v == '1' || v == 'true') return true;
+      if (v == false || v == 0 || v == '0' || v == 'false') return false;
+      return null;
+    }
+
+    // correct_option_id may arrive as int or string
+    int? parseId(dynamic v) {
+      if (v is int) return v;
+      if (v is String) return int.tryParse(v);
+      return null;
+    }
+
     return _AnswerFeedback(
-      isCorrect: json['is_correct'] as bool?,
-      correctOptionId: json['correct_option_id'] as int?,
-      explanation: json['explanation'] as String?,
+      isCorrect: parseCorrect(d['is_correct']),
+      correctOptionId: parseId(d['correct_option_id']),
+      explanation: d['explanation']?.toString(),
     );
   }
 }

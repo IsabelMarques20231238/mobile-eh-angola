@@ -14,8 +14,10 @@ class _Entry {
   final String institution;
   final String mainValue;
   final String subValue;
+  final String subLabel;
   final bool isCurrentUser;
   final String initials;
+  final int? timeSpentSeconds;
 
   const _Entry({
     required this.position,
@@ -23,8 +25,10 @@ class _Entry {
     required this.institution,
     required this.mainValue,
     required this.subValue,
+    required this.subLabel,
     required this.isCurrentUser,
     required this.initials,
+    this.timeSpentSeconds,
   });
 }
 
@@ -55,8 +59,7 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
   List<_Entry> _globalEntries = [];
   Map<String, dynamic>? _myGlobalPos;
   String? _globalUpdatedAt;
-  bool _globalLoading = false; // lazy — only loaded when tab is opened
-  bool _globalLoaded = false;
+  bool _globalLoading = false;
   String? _globalError;
 
   late TabController _tabCtrl;
@@ -65,13 +68,7 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: _isGlobalOnly ? 1 : 2, vsync: this);
-    _tabCtrl.addListener(() {
-      if (_tabCtrl.indexIsChanging) return;
-      if (!_isGlobalOnly && _tabCtrl.index == 1 && !_globalLoaded) {
-        _loadGlobal();
-      }
-    });
+    _tabCtrl = TabController(length: 1, vsync: this);
     if (_isGlobalOnly) {
       _globalLoading = true;
       _loadGlobal();
@@ -102,9 +99,13 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
             name: r.userName,
             institution: r.institution,
             mainValue: '${r.score}/${r.totalQuestions}',
-            subValue: '${r.percentage.round()}%',
+            subValue: r.timeSpentSeconds != null
+                ? formatSeconds(r.timeSpentSeconds)
+                : '${r.percentage.round()}%',
+            subLabel: r.timeSpentSeconds != null ? 'Tempo' : 'Acerto',
             isCurrentUser: myId != null && userId == myId,
             initials: r.initials,
+            timeSpentSeconds: r.timeSpentSeconds,
           );
         }).toList();
         _myQuizPos = result.myPosition;
@@ -132,7 +133,8 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
             name: r.userName,
             institution: r.institution,
             mainValue: _fmtPts(r.totalPoints),
-            subValue: '${r.avgAccuracy.round()}%',
+            subValue: '${r.avgAccuracy.round()}% acerto',
+            subLabel: 'Acerto médio',
             isCurrentUser: myId != null && userId == myId,
             initials: r.initials,
           );
@@ -140,7 +142,6 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
         _myGlobalPos = result.myPosition;
         _globalUpdatedAt = result.updatedAtHuman;
         _globalLoading = false;
-        _globalLoaded = true;
       });
     } on ApiException catch (e) {
       if (mounted) setState(() { _globalError = e.message; _globalLoading = false; });
@@ -166,25 +167,8 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
           style: TextStyle(
               fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.wine),
         ),
-        bottom: _isGlobalOnly
-            ? null
-            : TabBar(
-                controller: _tabCtrl,
-                labelColor: AppColors.wine,
-                unselectedLabelColor: c.muted,
-                indicatorColor: AppColors.wine,
-                tabs: const [Tab(text: 'Quiz'), Tab(text: 'Global')],
-              ),
       ),
-      body: _isGlobalOnly
-          ? _buildGlobalBody(c)
-          : TabBarView(
-              controller: _tabCtrl,
-              children: [
-                _buildQuizBody(c),
-                _buildGlobalBody(c),
-              ],
-            ),
+      body: _isGlobalOnly ? _buildGlobalBody(c) : _buildQuizBody(c),
       bottomNavigationBar: const BottomNavMock(index: 2),
     );
   }
@@ -250,8 +234,36 @@ class _QuizRankingScreenState extends State<QuizRankingScreen>
           ),
         ),
         Expanded(
-          child: _buildRankingList(c, _quizEntries, _myQuizPos, 'Quiz',
-              onRefresh: _loadQuizRanking),
+          child: _quizEntries.isEmpty
+              ? RefreshIndicator(
+                  onRefresh: _loadQuizRanking,
+                  child: ListView(children: [
+                    const SizedBox(height: 80),
+                    Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        FaIcon(FontAwesomeIcons.rankingStar, color: c.muted, size: 28),
+                        const SizedBox(height: 10),
+                        Text('Sem dados de ranking',
+                            style: TextStyle(color: c.textSecondary, fontSize: 14)),
+                      ]),
+                    ),
+                  ]),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadQuizRanking,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                    children: [
+                      // My position card at the TOP
+                      if (_myQuizPos != null) ...[
+                        _MyPositionCard(myPos: _myQuizPos!, entries: _quizEntries),
+                        const SizedBox(height: 16),
+                      ],
+                      // Full table — no podium, all positions
+                      _RankingTable(entries: _quizEntries),
+                    ],
+                  ),
+                ),
         ),
       ],
     );
@@ -584,7 +596,7 @@ class _TableRow extends StatelessWidget {
             ? const Border(left: BorderSide(color: AppColors.wine, width: 3))
             : null,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       child: Row(
         children: [
           SizedBox(
@@ -613,23 +625,76 @@ class _TableRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              isMe ? 'Você (${entry.name.split(' ').first})' : entry.name,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: isMe ? FontWeight.w800 : FontWeight.w500,
-                color: isMe ? AppColors.wine : c.textMain,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isMe ? 'Você (${entry.name.split(' ').first})' : entry.name,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isMe ? FontWeight.w800 : FontWeight.w500,
+                    color: isMe ? AppColors.wine : c.textMain,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (entry.timeSpentSeconds == null && entry.institution.isNotEmpty)
+                  Text(
+                    entry.institution,
+                    style: TextStyle(fontSize: 11, color: c.muted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
             ),
           ),
-          Text(
-            entry.mainValue,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: isMe ? AppColors.wine : c.muted,
+          const SizedBox(width: 8),
+          if (entry.timeSpentSeconds != null)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.timer_outlined,
+                    size: 12,
+                    color: isMe ? AppColors.wine : c.muted),
+                const SizedBox(width: 3),
+                Text(
+                  formatSeconds(entry.timeSpentSeconds),
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: isMe ? AppColors.wine : c.muted),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  entry.mainValue,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isMe ? AppColors.wine : c.textMain,
+                  ),
+                ),
+              ],
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  entry.mainValue,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isMe ? AppColors.wine : c.textMain,
+                  ),
+                ),
+                if (entry.subValue.isNotEmpty)
+                  Text(
+                    entry.subValue,
+                    style: TextStyle(fontSize: 11, color: c.muted),
+                  ),
+              ],
             ),
-          ),
         ],
       ),
     );
@@ -642,7 +707,8 @@ class _ExpandedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = entry.isCurrentUser ? 'A SUA POSIÇÃO' : entry.name.toUpperCase();
+    final isMe = entry.isCurrentUser;
+    final label = isMe ? 'A SUA POSIÇÃO' : entry.name.toUpperCase();
     return Container(
       padding: const EdgeInsets.all(20),
       color: AppColors.wine,
@@ -652,23 +718,31 @@ class _ExpandedCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  label,
-                  style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8),
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (!isMe && entry.institution.isNotEmpty)
+                      Text(
+                        entry.institution,
+                        style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500),
+                      ),
+                  ],
                 ),
               ),
-              if (!entry.isCurrentUser && entry.institution.isNotEmpty)
-                Text(entry.institution,
-                    style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600)),
-              if (entry.isCurrentUser)
+              if (isMe)
                 const FaIcon(FontAwesomeIcons.arrowTrendUp,
                     color: Colors.white70, size: 16),
             ],
@@ -685,7 +759,7 @@ class _ExpandedCard extends StatelessWidget {
           const SizedBox(height: 14),
           _StatRow(label: 'Resultado', value: entry.mainValue),
           Divider(height: 1, color: Colors.white.withValues(alpha: 0.15)),
-          _StatRow(label: 'Taxa de acerto', value: entry.subValue),
+          _StatRow(label: entry.subLabel, value: entry.subValue),
         ],
       ),
     );
@@ -718,15 +792,19 @@ class _StatRow extends StatelessWidget {
 
 class _MyPositionCard extends StatelessWidget {
   final Map<String, dynamic> myPos;
-  const _MyPositionCard({required this.myPos});
+  // When provided, renders the rich quiz design with name + percentile message
+  final List<_Entry>? entries;
+
+  const _MyPositionCard({required this.myPos, this.entries});
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final position = myPos['position'] ?? '-';
+    final position = myPos['position'];
+    final posNum =
+        position is int ? position : int.tryParse(position?.toString() ?? '');
     final score = myPos['score'];
     final total = myPos['total_questions'];
-    final pct = myPos['percentage'];
     final pts = myPos['total_points'];
 
     String value = '';
@@ -736,6 +814,108 @@ class _MyPositionCard extends StatelessWidget {
       value = _fmtPts(pts as int);
     }
 
+    // ── Rich design for quiz ranking ──────────────────────────────────────────
+    if (entries != null) {
+      final myEntry = entries!.where((e) => e.isCurrentUser).firstOrNull;
+      final displayName = myEntry != null ? 'Tu · ${myEntry.name}' : 'Tu';
+      final institution = myEntry?.institution ?? '';
+
+      String? perfMsg;
+      if (posNum != null && entries!.isNotEmpty) {
+        final topPct = ((posNum / entries!.length) * 100).round();
+        perfMsg = 'Estás no top $topPct% da tua turma';
+      }
+
+      return Container(
+        decoration: BoxDecoration(
+          color: AppColors.wineBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.wine.withValues(alpha: 0.25)),
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Left accent bar
+              Container(
+                width: 5,
+                decoration: const BoxDecoration(
+                  color: AppColors.wine,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    bottomLeft: Radius.circular(12),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              posNum != null ? '#$posNum' : '#—',
+                              style: const TextStyle(
+                                fontSize: 30,
+                                fontWeight: FontWeight.w900,
+                                color: AppColors.wine,
+                                height: 1.0,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              displayName,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: c.textMain,
+                              ),
+                            ),
+                            if (institution.isNotEmpty) ...[
+                              const SizedBox(height: 1),
+                              Text(
+                                institution,
+                                style: TextStyle(
+                                    fontSize: 12, color: c.textSecondary),
+                              ),
+                            ],
+                            if (perfMsg != null) ...[
+                              const SizedBox(height: 5),
+                              Text(
+                                perfMsg,
+                                style: TextStyle(fontSize: 12, color: c.muted),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (value.isNotEmpty) ...[
+                        const SizedBox(width: 12),
+                        Text(
+                          value,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.wine,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ── Compact design for global ranking (user not in podium) ────────────────
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -748,34 +928,35 @@ class _MyPositionCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('A SUA POSIÇÃO',
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: c.wine,
-                      letterSpacing: 0.8)),
+              Text(
+                'A SUA POSIÇÃO',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: c.wine,
+                  letterSpacing: 0.8,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text('#$position',
-                  style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: c.wine)),
+              Text(
+                posNum != null ? '#$posNum' : '#—',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: c.wine,
+                ),
+              ),
             ],
           ),
           const Spacer(),
           if (value.isNotEmpty)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(value,
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: c.wine)),
-                if (pct != null)
-                  Text('${(pct as num).round()}%',
-                      style: TextStyle(fontSize: 13, color: c.muted)),
-              ],
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: c.wine,
+              ),
             ),
         ],
       ),
