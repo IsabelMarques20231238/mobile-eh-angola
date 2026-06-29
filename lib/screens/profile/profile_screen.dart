@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../admin/admin_panel_screen.dart';
+import '../quiz/quiz_my_quizzes_screen.dart';
 import 'edit_profile_screen.dart';
 import 'saved_items_screen.dart';
 import 'settings_screen.dart';
@@ -430,6 +431,7 @@ class _ActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canCreate = AuthState.instance.canCreateQuiz;
     return SizedBox(
       width: 128,
       child: Column(
@@ -465,6 +467,18 @@ class _ActionButtons extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const AdminPanelScreen()),
             ),
           ),
+          if (canCreate) ...[
+            const SizedBox(height: 10),
+            _ProfileButton(
+              label: 'Os meus Quizzes',
+              background: AppColors.wineBg,
+              foreground: AppColors.wine,
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MyQuizzesScreen()),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           _ProfileButton(
             label: 'Terminar Sessão',

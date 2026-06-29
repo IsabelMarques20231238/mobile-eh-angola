@@ -117,6 +117,10 @@ class _QuizAIGenerationScreenState extends State<QuizAIGenerationScreen> {
       setState(() => _error = isNetworkError
           ? 'A geração demorou mais do esperado. A IA pode estar ocupada — tenta novamente.'
           : e.message);
+    } catch (_) {
+      if (!mounted || _cancelled) return;
+      _progressTimer?.cancel();
+      setState(() => _error = 'Ocorreu um erro inesperado. Tenta novamente.');
     }
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import 'quiz_models.dart';
 import 'quiz_detail_screen.dart';
+import 'quiz_my_quizzes_screen.dart';
 
 class QuizSubmittedScreen extends StatelessWidget {
   final String title;
@@ -293,8 +294,12 @@ class QuizSubmittedScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 52,
                 child: OutlinedButton(
-                  onPressed: () =>
-                      Navigator.popUntil(context, (r) => r.isFirst),
+                  onPressed: () => Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const MyQuizzesScreen()),
+                    (route) => route.isFirst,
+                  ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: AppColors.wine),
                     foregroundColor: AppColors.wine,

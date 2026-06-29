@@ -10,6 +10,7 @@ import '../../widgets/common_widgets.dart';
 import '../admin/create_quiz_screen.dart';
 import 'quiz_detail_screen.dart';
 import 'quiz_models.dart';
+import 'quiz_my_quizzes_screen.dart';
 import 'quiz_ranking_screen.dart';
 
 class QuizListScreen extends StatefulWidget {
@@ -152,6 +153,10 @@ class _QuizListScreenState extends State<QuizListScreen>
             onCreate: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const CreateQuizScreen()),
+            ),
+            onMyQuizzes: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MyQuizzesScreen()),
             ),
           ),
           if (_featured != null) ...[
@@ -444,79 +449,330 @@ class _Badge extends StatelessWidget {
 class _QuizHero extends StatelessWidget {
   final VoidCallback onRanking;
   final VoidCallback onCreate;
-  const _QuizHero({required this.onRanking, required this.onCreate});
+  final VoidCallback onMyQuizzes;
+
+  const _QuizHero({
+    required this.onRanking,
+    required this.onCreate,
+    required this.onMyQuizzes,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primaryDark, AppColors.wine],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.wine.withValues(alpha: .25),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Stack(
         children: [
-          Text(
-            'Quiz Interativo',
-            style: TextStyle(
-              color: c.textMain,
-              fontSize: 26,
-              fontWeight: FontWeight.w900,
-              height: 1.2,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Teste os seus conhecimentos sobre história, economia, política e muito mais. Aprenda, desafie-se e suba no ranking!',
-            style: TextStyle(color: c.textSecondary, fontSize: 13, height: 1.45),
-          ),
-          const SizedBox(height: 20),
-          ListenableBuilder(
-            listenable: AuthState.instance,
-            builder: (ctx, _) {
-              final canCreate = AuthState.instance.canCreateQuiz;
-              return Row(
+          Positioned.fill(child: CustomPaint(painter: _QuizHeroGridPainter())),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: onRanking,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: c.textMain,
-                        side: BorderSide(color: c.border),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(50)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text(
-                        'Ranking global',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withValues(alpha: .2)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.bolt_rounded, size: 12, color: Color(0xFFFBBF24)),
+                              SizedBox(width: 5),
+                              Text(
+                                'QUIZ INTERATIVO',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Quiz Interativo',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            height: 1.05,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Teste os seus conhecimentos sobre história, economia, política e muito mais. Aprenda, desafie-se e suba no ranking!',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            height: 1.4,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (canCreate) ...[
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: onCreate,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.wine,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(50)),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text(
-                          'Criar quiz',
-                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                  const SizedBox(width: 6),
+                  const _QuizIllustration(),
+                ],
+              ),
+              const SizedBox(height: 18),
+              ListenableBuilder(
+                listenable: AuthState.instance,
+                builder: (context, _) {
+                  final canCreate = AuthState.instance.canCreateQuiz;
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: _QuizHeroButton(
+                          icon: Icons.bar_chart_rounded,
+                          label: 'Ranking\nglobal',
+                          onTap: onRanking,
                         ),
                       ),
-                    ),
-                  ],
-                ],
-              );
-            },
+                      if (canCreate) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _QuizHeroButton(
+                            icon: Icons.assignment_outlined,
+                            label: 'Meus\nquizzes',
+                            onTap: onMyQuizzes,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _QuizHeroButton(
+                            icon: Icons.add_rounded,
+                            label: 'Criar\nquiz',
+                            onTap: onCreate,
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+}
+
+class _QuizHeroButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _QuizHeroButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white, size: 16),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuizIllustration extends StatelessWidget {
+  const _QuizIllustration();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 104,
+      height: 104,
+      child: Stack(
+        children: [
+          // Clipboard body
+          Positioned(
+            bottom: 0,
+            left: 6,
+            child: Container(
+              width: 68,
+              height: 80,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.93),
+                borderRadius: BorderRadius.circular(7),
+              ),
+              padding: const EdgeInsets.fromLTRB(10, 14, 10, 8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _CheckRow(checked: true),
+                  _CheckRow(checked: true),
+                  _CheckRow(checked: false),
+                  _CheckRow(checked: false),
+                ],
+              ),
+            ),
+          ),
+          // Clipboard clip
+          Positioned(
+            bottom: 72,
+            left: 28,
+            child: Container(
+              width: 20,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.55),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+              ),
+            ),
+          ),
+          // Graduation cap (on top of clipboard)
+          const Positioned(
+            top: 0,
+            right: 0,
+            child: SizedBox(
+              width: 52,
+              height: 52,
+              child: Icon(Icons.school_rounded, color: AppColors.wine, size: 46),
+            ),
+          ),
+          // Question mark — simple yellow, touching clipboard right edge
+          const Positioned(
+            bottom: 8,
+            left: 68,
+            child: Text(
+              '?',
+              style: TextStyle(
+                color: Color(0xFFFBBF24),
+                fontSize: 32,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
+          ),
+          // Decorative stars
+          Positioned(
+            top: 8,
+            left: 0,
+            child: Text('✦',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 10)),
+          ),
+          Positioned(
+            top: 32,
+            right: 2,
+            child: Text('✦',
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 7)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CheckRow extends StatelessWidget {
+  final bool checked;
+  const _CheckRow({required this.checked});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 13,
+          height: 13,
+          decoration: BoxDecoration(
+            color: checked ? AppColors.wine : Colors.transparent,
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(
+              color: checked ? AppColors.wine : const Color(0xFFD1D5DB),
+              width: 1.5,
+            ),
+          ),
+          child: checked
+              ? const Icon(Icons.check_rounded, size: 9, color: Colors.white)
+              : null,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Container(
+            height: 5,
+            decoration: BoxDecoration(
+              color: checked
+                  ? AppColors.wine.withValues(alpha: 0.18)
+                  : const Color(0xFFE5E7EB),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuizHeroGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: .04)
+      ..strokeWidth = 1;
+    for (double x = 0; x < size.width; x += 22) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += 22) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

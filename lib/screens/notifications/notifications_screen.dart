@@ -3,6 +3,7 @@ import '../../models/forum_models.dart';
 import '../../screens/forum/forum_topic_detail_screen.dart';
 import '../../screens/quiz/quiz_admin_approval_screen.dart';
 import '../../screens/quiz/quiz_ai_review_screen.dart';
+import '../../screens/quiz/quiz_deletion_requests_screen.dart';
 import '../../screens/quiz/quiz_detail_screen.dart';
 import '../../services/api_client.dart';
 import '../../services/forum_service.dart';
@@ -334,6 +335,22 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
               'Este quiz já não está disponível.',
               type: AppToastType.info));
         }
+      } else if (n.type == 'QUIZ_DELETION_REQUESTED') {
+        _closeAndRun(() => Navigator.of(widget.outerContext).push(
+          MaterialPageRoute(builder: (_) => const QuizDeletionRequestsScreen()),
+        ));
+      } else if (n.type == 'QUIZ_DELETION_APPROVED') {
+        _closeAndRun(() => showAppToast(
+          widget.outerContext,
+          n.message,
+          type: AppToastType.info,
+        ));
+      } else if (n.type == 'QUIZ_DELETION_REJECTED') {
+        _closeAndRun(() => showAppToast(
+          widget.outerContext,
+          n.message,
+          type: AppToastType.warning,
+        ));
       }
       return;
     }
@@ -851,6 +868,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               'Este quiz já não está disponível.',
               type: AppToastType.info);
         }
+      } else if (n.type == 'QUIZ_DELETION_REQUESTED') {
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => const QuizDeletionRequestsScreen(),
+        ));
+      } else if (n.type == 'QUIZ_DELETION_APPROVED') {
+        showAppToast(context, n.message, type: AppToastType.info);
+      } else if (n.type == 'QUIZ_DELETION_REJECTED') {
+        showAppToast(context, n.message, type: AppToastType.warning);
       }
       return;
     }

@@ -188,12 +188,29 @@ class QuizService {
     throw const ApiException('Erro ao submeter o quiz para revisão.');
   }
 
-  Future<List<QuizModel>> getMyQuizzes() async {
-    final payload = await _api.get('/my-quizzes', authenticated: true);
-    return _payloadList(payload)
+  Future<({List<QuizModel> quizzes, int currentPage, int lastPage})> getMyQuizzes({int page = 1, String? status}) async {
+    final payload = await _api.get(
+      '/my-quizzes',
+      query: {'page': page.toString(), 'status': status},
+      authenticated: true,
+    );
+    if (payload is Map<String, dynamic>) {
+      final list = (payload['data'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => QuizModel.fromJson(_jsonMap(e)))
+          .toList();
+      final meta = payload['meta'] as Map<String, dynamic>?;
+      return (
+        quizzes: list,
+        currentPage: meta?['current_page'] as int? ?? 1,
+        lastPage: meta?['last_page'] as int? ?? 1,
+      );
+    }
+    final flat = _payloadList(payload)
         .whereType<Map>()
         .map((e) => QuizModel.fromJson(_jsonMap(e)))
         .toList();
+    return (quizzes: flat, currentPage: 1, lastPage: 1);
   }
 
   // ── Categories & article search ───────────────────────────────────────────
@@ -233,6 +250,14 @@ class QuizService {
     await _api.delete('/quizzes/$id', authenticated: true);
   }
 
+  Future<void> requestDeletion(int id, String reason) async {
+    await _api.post(
+      '/quizzes/$id/request-deletion',
+      body: {'reason': reason},
+      authenticated: true,
+    );
+  }
+
   Future<void> adminApprove(int id) async {
     await _api.put('/admin/quizzes/$id/approve', authenticated: true);
   }
@@ -240,6 +265,31 @@ class QuizService {
   Future<void> adminReject(int id, String reason) async {
     await _api.put(
       '/admin/quizzes/$id/reject',
+      body: {'reason': reason},
+      authenticated: true,
+    );
+  }
+
+  // ── Admin — pedidos de eliminação ──────────────────────────────────────────
+
+  Future<List<DeletionRequestModel>> getDeletionRequests() async {
+    final payload = await _api.get('/admin/quiz-deletion-requests', authenticated: true);
+    final list = payload is Map
+        ? (payload['data'] as List? ?? [])
+        : (payload is List ? payload : const []);
+    return list
+        .whereType<Map>()
+        .map((e) => DeletionRequestModel.fromJson(_jsonMap(e)))
+        .toList();
+  }
+
+  Future<void> approveDeletionRequest(int id) async {
+    await _api.put('/admin/quiz-deletion-requests/$id/approve', authenticated: true);
+  }
+
+  Future<void> rejectDeletionRequest(int id, String reason) async {
+    await _api.put(
+      '/admin/quiz-deletion-requests/$id/reject',
       body: {'reason': reason},
       authenticated: true,
     );

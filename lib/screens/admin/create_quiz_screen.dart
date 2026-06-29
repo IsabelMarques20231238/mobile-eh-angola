@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/api_client.dart';
+import '../../services/auth_state.dart';
 import '../../services/quiz_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 import '../quiz/quiz_ai_generation_screen.dart';
 import '../quiz/quiz_ai_review_screen.dart';
+import '../quiz/quiz_my_quizzes_screen.dart';
 
 // Display labels shown to creator; API labels sent to backend
 const _diffDisplay = ['Fácil', 'Médio', 'Difícil'];
@@ -77,6 +80,11 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     return true;
   }
 
+  bool get _canSaveDraft =>
+      !_submitting &&
+      _titleCtrl.text.trim().isNotEmpty &&
+      _selectedArticle != null;
+
   Future<void> _pickArticle() async {
     final result = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
@@ -139,6 +147,9 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
         'difficulty': _diffApi[_difficulty],
         'article_id': articleId,
         if (_selectedCategoryId != null) 'category_id': _selectedCategoryId,
+        // AUTHOR: API needs explicit DRAFT so quiz isn't auto-published.
+        // ADMIN: omit status → API publishes directly as APPROVED.
+        if (!AuthState.instance.isAdmin) 'status': 'DRAFT',
         'questions': questions,
       });
       if (!mounted) return;
@@ -151,6 +162,67 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
       );
     } on ApiException catch (e) {
       if (mounted) _showError(e.message);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _saveDraft() async {
+    if (!_canSaveDraft) return;
+    setState(() => _submitting = true);
+    try {
+      final desc = _descriptionCtrl.text.trim();
+      // Only send questions that are fully valid — API rejects empty option texts
+      // even in DRAFT mode. Partial questions are silently dropped.
+      final questions = _questions
+          .where((q) =>
+              q.questionCtrl.text.trim().isNotEmpty &&
+              q.correctIndex >= 0 &&
+              q.optionCtrls.every((o) => o.text.trim().isNotEmpty))
+          .map((q) => {
+                'text': q.questionCtrl.text.trim(),
+                'explanation': q.explanationCtrl.text.trim(),
+                'options': q.optionCtrls
+                    .asMap()
+                    .entries
+                    .map((e) => {
+                          'text': e.value.text.trim(),
+                          'is_correct': e.key == q.correctIndex,
+                        })
+                    .toList(),
+              })
+          .toList();
+      final created = await _service.createQuiz({
+        'title': _titleCtrl.text.trim(),
+        if (desc.isNotEmpty) 'description': desc,
+        'difficulty': _diffApi[_difficulty],
+        'article_id': _selectedArticle!['id'] as int,
+        if (_selectedCategoryId != null) 'category_id': _selectedCategoryId,
+        'status': 'DRAFT',
+        if (questions.isNotEmpty) 'questions': questions,
+      });
+      if (!mounted) return;
+
+      if (created.status != 'DRAFT') {
+        // API auto-published instead of saving as draft — roll back immediately.
+        try { await _service.deleteQuiz(created.id); } catch (_) {}
+        if (!mounted) return;
+        _showError(
+          'Não foi possível guardar como rascunho. O quiz foi automaticamente publicado e eliminado. Tenta novamente ou contacta o suporte.',
+        );
+        return;
+      }
+
+      showAppToast(context, 'Rascunho guardado!', type: AppToastType.success);
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const MyQuizzesScreen()),
+        (route) => route.isFirst,
+      );
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.message);
+    } catch (_) {
+      if (mounted) _showError('Ocorreu um erro inesperado. Tenta novamente.');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -367,8 +439,10 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
       bottomNavigationBar: _BottomBar(
         aiMode: _aiMode,
         canSubmit: canSubmit,
+        canSaveDraft: _canSaveDraft,
         submitting: _submitting,
         onSubmit: _submit,
+        onSaveDraft: _saveDraft,
       ),
     );
   }
@@ -409,14 +483,18 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
 class _BottomBar extends StatelessWidget {
   final bool aiMode;
   final bool canSubmit;
+  final bool canSaveDraft;
   final bool submitting;
   final VoidCallback onSubmit;
+  final VoidCallback onSaveDraft;
 
   const _BottomBar({
     required this.aiMode,
     required this.canSubmit,
+    required this.canSaveDraft,
     required this.submitting,
     required this.onSubmit,
+    required this.onSaveDraft,
   });
 
   @override
@@ -458,7 +536,26 @@ class _BottomBar extends StatelessWidget {
                     : Text(aiMode ? 'Gerar quiz com IA' : 'Criar Quiz'),
               ),
             ),
-            if (aiMode) ...[
+            if (!aiMode) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 48,
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: canSaveDraft && !submitting ? onSaveDraft : null,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.wine),
+                    foregroundColor: AppColors.wine,
+                    disabledForegroundColor: Colors.grey,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    textStyle: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
+                  child: const Text('Guardar rascunho'),
+                ),
+              ),
+            ] else ...[
               const SizedBox(height: 8),
               Text(
                 'O quiz será enviado para aprovação antes de ser publicado.',

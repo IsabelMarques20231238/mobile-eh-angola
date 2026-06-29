@@ -176,6 +176,8 @@ class ApiClient {
         default:
           throw ArgumentError('Metodo HTTP nao suportado: $method');
       }
+    } on SocketException {
+      throw const ApiException('Nao foi possivel contactar a API.');
     } on http.ClientException {
       throw const ApiException('Nao foi possivel contactar a API.');
     } on TimeoutException {

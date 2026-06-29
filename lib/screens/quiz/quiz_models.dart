@@ -431,6 +431,45 @@ class GlobalRankingItemModel {
   }
 }
 
+// ─── DeletionRequestModel ─────────────────────────────────────────────────────
+
+class DeletionRequestModel {
+  final int id;
+  final String status;
+  final String reason;
+  final DateTime? createdAt;
+  final Map<String, dynamic> quiz;
+  final Map<String, dynamic> requestedBy;
+
+  DeletionRequestModel({
+    required this.id,
+    required this.status,
+    required this.reason,
+    this.createdAt,
+    required this.quiz,
+    required this.requestedBy,
+  });
+
+  factory DeletionRequestModel.fromJson(Map<String, dynamic> json) {
+    return DeletionRequestModel(
+      id: json['id'] as int,
+      status: json['status'] as String? ?? 'PENDING',
+      reason: json['reason'] as String? ?? '',
+      createdAt: json['created_at'] == null
+          ? null
+          : DateTime.tryParse(json['created_at'] as String),
+      quiz: Map<String, dynamic>.from(json['quiz'] as Map? ?? {}),
+      requestedBy: Map<String, dynamic>.from(json['requested_by'] as Map? ?? {}),
+    );
+  }
+
+  int?   get quizId       => quiz['id'] as int?;
+  String get quizTitle    => quiz['title'] as String? ?? 'Quiz';
+  String get quizStatus   => quiz['status'] as String? ?? '';
+  String get creatorName  => (quiz['creator'] as Map?)?['name'] as String? ?? 'Utilizador';
+  String get requesterName => requestedBy['name'] as String? ?? 'Utilizador';
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 String formatSeconds(int? seconds) {
