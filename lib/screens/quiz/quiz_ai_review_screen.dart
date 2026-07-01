@@ -81,16 +81,24 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
       if (quiz.durationMinutes != null) 'duration_minutes': quiz.durationMinutes,
       'reward_points': quiz.rewardPoints,
       'status': status,
-      'questions': _questions.map((rq) => {
-        'text': rq.questionCtrl.text.trim(),
-        'explanation': rq.explanationCtrl.text.trim().isEmpty
-            ? null
-            : rq.explanationCtrl.text.trim(),
-        'options': List.generate(rq.optionCtrls.length, (i) => {
+      'questions': _questions.map((rq) {
+        final explanation = rq.explanationCtrl.text.trim();
+        final options = List.generate(rq.optionCtrls.length, (i) => {
           'text': rq.optionCtrls[i].text.trim(),
           'is_correct': i == rq.correctIndex,
+          // The backend only reads the pedagogical explanation from the
+          // correct option — sending it at question root has no effect on
+          // in-game feedback.
+          'explanation': i == rq.correctIndex && explanation.isNotEmpty
+              ? explanation
+              : null,
+        });
+        return {
+          'text': rq.questionCtrl.text.trim(),
           'explanation': null,
-        }),
+          'options': options,
+          'answer_options': options,
+        };
       }).toList(),
     };
   }

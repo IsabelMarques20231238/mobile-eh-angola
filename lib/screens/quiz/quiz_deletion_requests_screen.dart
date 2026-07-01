@@ -20,11 +20,15 @@ class _QuizDeletionRequestsScreenState
   List<DeletionRequestModel> _requests = [];
   bool _loading = true;
   String? _error;
+  bool _initialized = false;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _initialized = true;
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -55,7 +59,13 @@ class _QuizDeletionRequestsScreenState
       showAppToast(context, 'Pedido aprovado. Quiz eliminado.', type: AppToastType.success);
       _load();
     } on ApiException catch (e) {
-      if (mounted) showAppToast(context, e.message, type: AppToastType.error);
+      if (!mounted) return;
+      if (e.statusCode == 409) {
+        showAppToast(context, 'Já foi processado por outro administrador.', type: AppToastType.warning);
+        _load();
+        return;
+      }
+      showAppToast(context, e.message, type: AppToastType.error);
     }
   }
 
@@ -78,7 +88,13 @@ class _QuizDeletionRequestsScreenState
       showAppToast(context, 'Pedido rejeitado. O autor foi notificado.', type: AppToastType.info);
       _load();
     } on ApiException catch (e) {
-      if (mounted) showAppToast(context, e.message, type: AppToastType.error);
+      if (!mounted) return;
+      if (e.statusCode == 409) {
+        showAppToast(context, 'Já foi processado por outro administrador.', type: AppToastType.warning);
+        _load();
+        return;
+      }
+      showAppToast(context, e.message, type: AppToastType.error);
     }
   }
 

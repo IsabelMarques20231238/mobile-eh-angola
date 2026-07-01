@@ -69,14 +69,28 @@ class QuestionModel {
 
   factory QuestionModel.fromJson(Map<String, dynamic> json) {
     final rawOptions = json['options'] as List? ?? json['answer_options'] as List? ?? [];
+    final options = rawOptions
+        .map((e) => AnswerOptionModel.fromJson(e as Map<String, dynamic>))
+        .toList();
+    // The AI generator only stores the pedagogical explanation on the correct
+    // option, not on the question itself — fall back to it when the root
+    // 'explanation' is absent.
+    String? correctOptionExplanation;
+    for (final o in options) {
+      if (o.isCorrect == true && (o.explanation?.isNotEmpty ?? false)) {
+        correctOptionExplanation = o.explanation;
+        break;
+      }
+    }
+    final rootExplanation = json['explanation'] as String?;
     return QuestionModel(
       id: json['id'] as int,
       text: json['text'] as String,
       orderIndex: json['order_index'] as int? ?? 0,
-      explanation: json['explanation'] as String?,
-      options: rawOptions
-          .map((e) => AnswerOptionModel.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      explanation: (rootExplanation?.isNotEmpty ?? false)
+          ? rootExplanation
+          : correctOptionExplanation,
+      options: options,
     );
   }
 }
@@ -137,6 +151,7 @@ class QuizModel {
   final List<QuestionModel> questions;
   final List<Map<String, dynamic>> relatedArticles;
   final ReviewInfoModel? reviewInfo;
+  final Map<String, dynamic>? deletionRequest;
 
   QuizModel({
     required this.id,
@@ -164,6 +179,7 @@ class QuizModel {
     this.questions = const [],
     this.relatedArticles = const [],
     this.reviewInfo,
+    this.deletionRequest,
   });
 
   factory QuizModel.fromJson(Map<String, dynamic> json) {
@@ -203,8 +219,11 @@ class QuizModel {
       reviewInfo: json['review_info'] == null
           ? null
           : ReviewInfoModel.fromJson(json['review_info'] as Map<String, dynamic>),
+      deletionRequest: json['deletion_request'] as Map<String, dynamic>?,
     );
   }
+
+  bool get hasPendingDeletionRequest => deletionRequest?['status'] == 'PENDING';
 
   QuizDifficulty get difficultyEnum => difficultyFromApi(difficulty);
   String get categoryName => category?['name'] as String? ?? theme ?? 'Geral';

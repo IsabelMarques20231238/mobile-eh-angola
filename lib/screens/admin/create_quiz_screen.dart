@@ -129,16 +129,23 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     }
 
     final questions = _questions.map((q) {
+      final explanation = q.explanationCtrl.text.trim();
       final opts = q.optionCtrls.asMap().entries
           .map((e) => {
                 'text': e.value.text.trim(),
                 'is_correct': e.key == q.correctIndex,
+                // Only the correct option carries the pedagogical explanation —
+                // the backend uses it for in-game feedback, not a root field.
+                'explanation': e.key == q.correctIndex && explanation.isNotEmpty
+                    ? explanation
+                    : null,
               })
           .toList();
       return {
         'text': q.questionCtrl.text.trim(),
-        'explanation': q.explanationCtrl.text.trim(),
+        'explanation': null,
         'options': opts,
+        'answer_options': opts,
       };
     }).toList();
 
@@ -214,18 +221,26 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
               q.questionCtrl.text.trim().isNotEmpty &&
               q.correctIndex >= 0 &&
               q.optionCtrls.every((o) => o.text.trim().isNotEmpty))
-          .map((q) => {
-                'text': q.questionCtrl.text.trim(),
-                'explanation': q.explanationCtrl.text.trim(),
-                'options': q.optionCtrls
-                    .asMap()
-                    .entries
-                    .map((e) => {
-                          'text': e.value.text.trim(),
-                          'is_correct': e.key == q.correctIndex,
-                        })
-                    .toList(),
-              })
+          .map((q) {
+            final explanation = q.explanationCtrl.text.trim();
+            final opts = q.optionCtrls
+                .asMap()
+                .entries
+                .map((e) => {
+                      'text': e.value.text.trim(),
+                      'is_correct': e.key == q.correctIndex,
+                      'explanation': e.key == q.correctIndex && explanation.isNotEmpty
+                          ? explanation
+                          : null,
+                    })
+                .toList();
+            return {
+              'text': q.questionCtrl.text.trim(),
+              'explanation': null,
+              'options': opts,
+              'answer_options': opts,
+            };
+          })
           .toList();
       final created = await _service.createQuiz({
         'title': _titleCtrl.text.trim(),

@@ -26,15 +26,18 @@ class _QuizAdminApprovalScreenState extends State<QuizAdminApprovalScreen> {
   bool _loading = true;
   String? _error;
   bool _submitting = false;
+  bool _initialized = false;
 
   @override
-  void initState() {
-    super.initState();
-    if (widget.initialQuiz != null) {
-      _quiz = widget.initialQuiz;
-      _loading = false;
-    } else {
-      _loadQuiz();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _initialized = true;
+      if (widget.initialQuiz != null) {
+        setState(() { _quiz = widget.initialQuiz; _loading = false; });
+      } else {
+        _loadQuiz();
+      }
     }
   }
 
@@ -61,6 +64,12 @@ class _QuizAdminApprovalScreenState extends State<QuizAdminApprovalScreen> {
       Navigator.pop(context, true);
     } on ApiException catch (e) {
       if (!mounted) return;
+      if (e.statusCode == 409) {
+        showAppToast(context, 'Já foi processado por outro administrador.',
+            type: AppToastType.warning);
+        Navigator.pop(context);
+        return;
+      }
       setState(() => _submitting = false);
       showAppToast(context, e.message, type: AppToastType.error);
     }
@@ -86,6 +95,12 @@ class _QuizAdminApprovalScreenState extends State<QuizAdminApprovalScreen> {
       Navigator.pop(context, false);
     } on ApiException catch (e) {
       if (!mounted) return;
+      if (e.statusCode == 409) {
+        showAppToast(context, 'Já foi processado por outro administrador.',
+            type: AppToastType.warning);
+        Navigator.pop(context);
+        return;
+      }
       setState(() => _submitting = false);
       showAppToast(context, e.message, type: AppToastType.error);
     }

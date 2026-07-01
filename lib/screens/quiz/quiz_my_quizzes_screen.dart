@@ -26,6 +26,7 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
   int _selectedTab = 0;
   int _currentPage = 1;
   int _lastPage = 1;
+  static final Set<int> _pendingDeletionIds = {};
 
   // Admin/super quizzes are published instantly — no PENDING state for them
   List<String?> get _tabStatuses {
@@ -76,6 +77,7 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
           _lastPage = result.lastPage;
           _loading = false;
         });
+        _cleanUpPendingDeletions(result.quizzes);
       }
     } on ApiException catch (e) {
       if (mounted) { setState(() { _error = e.message; _loading = false; }); }
@@ -139,13 +141,54 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
   Future<void> _requestDeletion(QuizModel quiz) async {
     final reason = await _showRequestDeletionDialog(quiz);
     if (reason == null || !mounted) return;
+    // Optimistic update — disable button before the API call
+    setState(() => _pendingDeletionIds.add(quiz.id));
     try {
       await _service.requestDeletion(quiz.id, reason);
       if (!mounted) return;
       showAppToast(context, 'Pedido de eliminação enviado.', type: AppToastType.success);
     } on ApiException catch (e) {
-      if (mounted) showAppToast(context, e.message, type: AppToastType.error);
+      if (mounted) {
+        setState(() => _pendingDeletionIds.remove(quiz.id));
+        showAppToast(context, e.message, type: AppToastType.error);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _pendingDeletionIds.remove(quiz.id));
+        showAppToast(context, 'Não foi possível enviar o pedido. Tenta novamente.', type: AppToastType.error);
+      }
     }
+  }
+
+  void _cleanUpPendingDeletions(List<QuizModel> quizzes) {
+    if (_pendingDeletionIds.isEmpty) return;
+    for (final id in List.of(_pendingDeletionIds)) {
+      QuizModel? q;
+      for (final quiz in quizzes) {
+        if (quiz.id == id) { q = quiz; break; }
+      }
+      if (q == null) {
+        // Quiz was deleted (admin approved deletion request)
+        _pendingDeletionIds.remove(id);
+      } else if (q.deletionRequest != null) {
+        // API included deletion_request — check if it's still PENDING
+        if (!q.hasPendingDeletionRequest) _pendingDeletionIds.remove(id);
+      } else {
+        // API list doesn't include deletion_request — fetch detail to confirm
+        _fetchAndCheckDeletion(id);
+      }
+    }
+  }
+
+  Future<void> _fetchAndCheckDeletion(int quizId) async {
+    try {
+      final detail = await _service.getQuiz(quizId);
+      // While PENDING the backend returns deletion_request: {status:'PENDING'} → hasPendingDeletionRequest = true → keep.
+      // After REJECTED the backend returns deletion_request: null → hasPendingDeletionRequest = false → remove.
+      if (!detail.hasPendingDeletionRequest && mounted) {
+        setState(() => _pendingDeletionIds.remove(quizId));
+      }
+    } catch (_) {}
   }
 
   Future<String?> _showRequestDeletionDialog(QuizModel quiz) {
@@ -437,6 +480,8 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
           return _MyQuizCard(
             quiz: quiz,
             isAdmin: isAdmin,
+            hasPendingDeletion: quiz.hasPendingDeletionRequest ||
+                _pendingDeletionIds.contains(quiz.id),
             onView: () => _openDetail(quiz),
             onDelete: () => _deleteQuiz(quiz),
             onRequestDeletion: () => _requestDeletion(quiz),
@@ -452,6 +497,7 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
 class _MyQuizCard extends StatelessWidget {
   final QuizModel quiz;
   final bool isAdmin;
+  final bool hasPendingDeletion;
   final VoidCallback onView;
   final VoidCallback onDelete;
   final VoidCallback onRequestDeletion;
@@ -459,6 +505,7 @@ class _MyQuizCard extends StatelessWidget {
   const _MyQuizCard({
     required this.quiz,
     required this.isAdmin,
+    required this.hasPendingDeletion,
     required this.onView,
     required this.onDelete,
     required this.onRequestDeletion,
@@ -678,7 +725,8 @@ class _MyQuizCard extends StatelessWidget {
           ),
 
           // ── Action buttons ────────────────────────────────────────────────
-          if (!isPending) ...[
+          // Admin can delete PENDING quizzes directly; authors cannot act on them.
+          if (!isPending || isAdmin) ...[
             Divider(height: 1, color: c.border),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
@@ -698,7 +746,7 @@ class _MyQuizCard extends StatelessWidget {
                             fontSize: 13, fontWeight: FontWeight.w600),
                       ),
                       child: Text(
-                        isApproved
+                        isApproved || isPending
                             ? 'Ver quiz'
                             : isRejected
                                 ? 'Editar e resubmeter'
@@ -708,9 +756,9 @@ class _MyQuizCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   // Delete action:
-                  // ADMIN/SUPER_ADMIN → sempre "Eliminar" direto
+                                  // ADMIN/SUPER_ADMIN → sempre "Eliminar" direto
                   // AUTHOR + DRAFT ou REJECTED → "Eliminar" direto
-                  // AUTHOR + APPROVED → "Pedir eliminação" (requer revisão)
+                  // AUTHOR + APPROVED → "Pedir eliminação" (desabilitado se já tiver pedido activo)
                   Expanded(
                     child: (isAdmin || isDraft || isRejected)
                         ? ElevatedButton(
@@ -728,17 +776,24 @@ class _MyQuizCard extends StatelessWidget {
                             child: const Text('Eliminar'),
                           )
                         : OutlinedButton(
-                            onPressed: onRequestDeletion,
+                            onPressed: hasPendingDeletion ? null : onRequestDeletion,
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppColors.error,
-                              side: const BorderSide(color: AppColors.error),
+                              disabledForegroundColor: const Color(0xFF9CA3AF),
+                              side: BorderSide(
+                                color: hasPendingDeletion
+                                    ? const Color(0xFFD1D5DB)
+                                    : AppColors.error,
+                              ),
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8)),
                               textStyle: const TextStyle(
                                   fontSize: 13, fontWeight: FontWeight.w600),
                             ),
-                            child: const Text('Pedir eliminação'),
+                            child: Text(hasPendingDeletion
+                                ? 'Pedido enviado'
+                                : 'Pedir eliminação'),
                           ),
                   ),
                 ],

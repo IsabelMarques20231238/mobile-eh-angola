@@ -64,6 +64,7 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
   _AnswerFeedback? _feedback; // null = not yet confirmed
   bool _confirming = false;   // waiting for /answer API call
   bool _submitting = false;   // waiting for /submit API call
+  bool _feedbackExpanded = false;
   int _secondsElapsed = 0;
   Timer? _timer;
 
@@ -134,6 +135,7 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
         _currentIndex++;
         _selectedOptionId = null;
         _feedback = null;
+        _feedbackExpanded = false;
       });
     } else {
       await _submit();
@@ -498,42 +500,90 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
     final color = known ? AppColors.success : AppColors.error;
     final icon = known ? Icons.check_circle_rounded : Icons.cancel_rounded;
     final label = known ? 'Resposta correcta!' : 'Resposta Incorrecta!';
+    const textStyle = TextStyle(fontSize: 13, height: 1.4);
+    const collapsedMaxLines = 3;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-      decoration: BoxDecoration(
-        color: bg,
-        border:
-            Border(top: BorderSide(color: borderColor.withValues(alpha: 0.35))),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w800, color: color),
-              ),
-            ],
-          ),
-          if (fb.explanation != null && fb.explanation!.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              fb.explanation!,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 13, color: c.textSecondary, height: 1.4),
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final hasExplanation =
+            fb.explanation != null && fb.explanation!.isNotEmpty;
+
+        final overflows = hasExplanation
+            ? (TextPainter(
+                text: TextSpan(text: fb.explanation, style: textStyle),
+                maxLines: collapsedMaxLines,
+                textDirection: TextDirection.ltr,
+              )..layout(maxWidth: constraints.maxWidth - 40))
+                .didExceedMaxLines
+            : false;
+
+        return GestureDetector(
+          onTap: overflows
+              ? () => setState(() => _feedbackExpanded = !_feedbackExpanded)
+              : null,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+            decoration: BoxDecoration(
+              color: bg,
+              border: Border(
+                  top: BorderSide(color: borderColor.withValues(alpha: 0.35))),
             ),
-          ],
-        ],
-      ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, color: color, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: color),
+                    ),
+                  ],
+                ),
+                if (hasExplanation) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    fb.explanation!,
+                    maxLines: _feedbackExpanded ? null : collapsedMaxLines,
+                    overflow: _feedbackExpanded ? null : TextOverflow.ellipsis,
+                    style:
+                        textStyle.copyWith(color: c.textSecondary),
+                  ),
+                  if (overflows) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _feedbackExpanded ? 'Ver menos' : 'Ver mais',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: color),
+                        ),
+                        const SizedBox(width: 2),
+                        Icon(
+                          _feedbackExpanded
+                              ? Icons.keyboard_arrow_up_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          size: 15,
+                          color: color,
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
