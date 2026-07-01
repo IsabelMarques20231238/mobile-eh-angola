@@ -12,10 +12,14 @@ import 'quiz_submitted_screen.dart';
 class QuizAIReviewScreen extends StatefulWidget {
   final QuizModel quiz;
   final bool isAiGenerated;
+  final bool readOnly;
+  final bool popOnExit;
   const QuizAIReviewScreen({
     super.key,
     required this.quiz,
     this.isAiGenerated = true,
+    this.readOnly = false,
+    this.popOnExit = false,
   });
 
   @override
@@ -27,8 +31,10 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
   List<_ReviewQ> _questions = [];
   int? _editingIndex;
   bool _submitting = false;
+  bool _savingDraft = false;
   bool _loadingQuiz = false;
   String? _loadError;
+  bool _exiting = false;
 
   @override
   void initState() {
@@ -63,52 +69,200 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
     super.dispose();
   }
 
-  void _saveDraft() {
-    showAppToast(context, 'Rascunho guardado!', type: AppToastType.success);
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const MyQuizzesScreen()),
-      (route) => route.isFirst,
-    );
+  Map<String, dynamic> _buildPayload(String status) {
+    final quiz = widget.quiz;
+    return {
+      'title': quiz.title,
+      if (quiz.description != null && quiz.description!.isNotEmpty)
+        'description': quiz.description,
+      'difficulty': quiz.difficulty,
+      if (quiz.article?['id'] != null) 'article_id': quiz.article!['id'],
+      if (quiz.category?['id'] != null) 'category_id': quiz.category!['id'],
+      if (quiz.durationMinutes != null) 'duration_minutes': quiz.durationMinutes,
+      'reward_points': quiz.rewardPoints,
+      'status': status,
+      'questions': _questions.map((rq) => {
+        'text': rq.questionCtrl.text.trim(),
+        'explanation': rq.explanationCtrl.text.trim().isEmpty
+            ? null
+            : rq.explanationCtrl.text.trim(),
+        'options': List.generate(rq.optionCtrls.length, (i) => {
+          'text': rq.optionCtrls[i].text.trim(),
+          'is_correct': i == rq.correctIndex,
+          'explanation': null,
+        }),
+      }).toList(),
+    };
   }
 
-  Future<void> _cancelAndDelete() async {
-    final isDraft = widget.quiz.status == 'DRAFT';
-    if (!isDraft) { Navigator.pop(context); return; }
-    final confirmed = await showAppDialog(
-      context,
-      title: 'Eliminar rascunho?',
-      message: 'O quiz será eliminado permanentemente. Esta ação não pode ser desfeita.',
-      confirmLabel: 'Eliminar',
-      cancelLabel: 'Cancelar',
-      type: AppDialogType.danger,
-    );
-    if (!confirmed || !mounted) return;
+  Future<void> _saveDraft() async {
+    if (_savingDraft) return;
+    setState(() => _savingDraft = true);
     try {
-      await _service.deleteQuiz(widget.quiz.id);
-    } catch (_) {}
+      await _service.updateQuiz(widget.quiz.id, _buildPayload('DRAFT'));
+      if (!mounted) return;
+      showAppToast(context, 'Rascunho guardado!', type: AppToastType.success);
+      setState(() => _exiting = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MyQuizzesScreen()),
+          (route) => route.isFirst,
+        );
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _savingDraft = false);
+      showAppToast(context, e.message, type: AppToastType.error);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _savingDraft = false);
+      showAppToast(context, 'Não foi possível guardar. Tenta novamente.',
+          type: AppToastType.error);
+    }
+  }
+
+  bool get _hasUnsavedChanges =>
+      !widget.readOnly &&
+      (widget.quiz.status == 'DRAFT' || widget.quiz.status == 'REJECTED');
+
+  void _handleBack() {
+    if (!_hasUnsavedChanges) {
+      setState(() => _exiting = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pop(context);
+      });
+      return;
+    }
+    _showExitDialog();
+  }
+
+  Future<void> _showExitDialog() async {
+    FocusScope.of(context).unfocus();
+    final isRejected = widget.quiz.status == 'REJECTED';
+    final isAdmin = AuthState.instance.isAdmin;
+    final action = isAdmin ? 'publicado' : 'enviado para revisão';
+    final result = await showDialog<_ExitAction>(
+      context: context,
+      builder: (ctx) {
+        final c = ctx.c;
+        return Dialog(
+          backgroundColor: c.card,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isRejected ? 'Sair sem guardar?' : 'Sair sem submeter?',
+                  style: TextStyle(
+                    color: c.textMain,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isRejected
+                      ? 'As alterações que fizeste ainda não foram guardadas. Podes guardá-las como rascunho e reenviar para revisão mais tarde.'
+                      : 'O quiz ainda não foi $action. Podes guardá-lo como rascunho e continuar mais tarde.',
+                  style: TextStyle(color: c.textSecondary, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, _ExitAction.exit),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      child: const Text('Continuar', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, _ExitAction.cancel),
+                      style: TextButton.styleFrom(
+                        foregroundColor: c.textSecondary,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, _ExitAction.saveDraft),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.wine,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 0,
+                      textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                    child: const Text('Guardar rascunho'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
     if (!mounted) return;
-    Navigator.popUntil(context, (r) => r.isFirst);
+    switch (result) {
+      case _ExitAction.exit:
+        if (widget.popOnExit) {
+          setState(() => _exiting = true);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) Navigator.pop(context);
+          });
+        } else {
+          Navigator.pushNamedAndRemoveUntil(
+              context, AppRoutes.quizList, (r) => false);
+        }
+      case _ExitAction.saveDraft:
+        await _saveDraft();
+      case _ExitAction.cancel:
+      case null:
+        break;
+    }
   }
 
   Future<void> _submit() async {
     setState(() => _submitting = true);
     try {
       if (AuthState.instance.isAdmin) {
-        // ADMIN — publish directly; if the API didn't auto-approve (e.g. quiz
-        // is still DRAFT), call adminApprove before confirming publication.
-        if (widget.quiz.status != 'APPROVED') {
-          await _service.adminApprove(widget.quiz.id);
-        }
+        final updated = await _service.updateQuiz(
+          widget.quiz.id,
+          _buildPayload('APPROVED'),
+        );
         if (!mounted) return;
-        showAppToast(context, 'Quiz publicado com sucesso!',
-            type: AppToastType.success);
-        Navigator.pushNamedAndRemoveUntil(
-            context, AppRoutes.quizList, (r) => false);
+        if (updated.status == 'APPROVED') {
+          showAppToast(context, 'Quiz publicado com sucesso!',
+              type: AppToastType.success);
+          Navigator.pushNamedAndRemoveUntil(
+              context, AppRoutes.quizList, (r) => false);
+        } else {
+          setState(() => _submitting = false);
+          showAppToast(
+            context,
+            'Não foi possível publicar. Estado retornado: ${updated.status}',
+            type: AppToastType.error,
+          );
+        }
       } else {
-        // AUTHOR — submit DRAFT for editorial review → becomes PENDING
-        final submitted =
-            await _service.submitDraftForReview(widget.quiz.id);
+        // 1 — persist any edits made in the review screen
+        await _service.updateQuiz(widget.quiz.id, _buildPayload('DRAFT'));
+        if (!mounted) return;
+        // 2 — change DRAFT → PENDING via the dedicated submit endpoint
+        final submitted = await _service.submitForReview(widget.quiz.id);
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
@@ -126,7 +280,13 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      showAppToast(context, e.message, type: AppToastType.error);
+      final isValidation = e.statusCode == 422 || e.errors != null;
+      final msg = isValidation
+          ? (AuthState.instance.isAdmin
+              ? 'Não foi possível publicar o quiz. Tenta novamente.'
+              : 'Não foi possível enviar para revisão. Tenta novamente.')
+          : e.message;
+      showAppToast(context, msg, type: AppToastType.error);
     } catch (_) {
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -138,7 +298,12 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Scaffold(
+    return PopScope(
+      canPop: _exiting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleBack();
+      },
+      child: Scaffold(
       backgroundColor: c.bg,
       appBar: AppBar(
         backgroundColor: c.card,
@@ -146,11 +311,11 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios_new_rounded,
               color: c.textSecondary, size: 20),
-          onPressed: _cancelAndDelete,
+          onPressed: _handleBack,
         ),
         centerTitle: true,
         title: Text(
-          'Revisão do Quiz',
+          widget.readOnly ? 'Quiz em revisão' : 'Revisão do Quiz',
           style: TextStyle(
               color: c.wine, fontSize: 18, fontWeight: FontWeight.w900),
         ),
@@ -193,7 +358,7 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
                     ),
                     const SizedBox(height: 12),
                     ...List.generate(_questions.length, (i) {
-                      if (_editingIndex == i) {
+                      if (!widget.readOnly && _editingIndex == i) {
                         return _EditCard(
                           index: i,
                           question: _questions[i],
@@ -204,12 +369,13 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
                       return _QuestionViewCard(
                         index: i,
                         question: _questions[i],
+                        readOnly: widget.readOnly,
                         onEdit: () => setState(() => _editingIndex = i),
                       );
                     }),
                   ],
                 ),
-      bottomNavigationBar: SafeArea(
+      bottomNavigationBar: widget.readOnly ? null : SafeArea(
         top: false,
         child: Container(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
@@ -241,42 +407,28 @@ class _QuizAIReviewScreenState extends State<QuizAIReviewScreen> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white))
                       : Text(AuthState.instance.isAdmin
-                          ? 'Publicar Quiz'
-                          : 'Submeter para Avaliação'),
+                          ? 'Publicar'
+                          : 'Enviar para revisão'),
                 ),
               ),
-              if (widget.quiz.status == 'DRAFT') ...[
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 48,
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: _submitting ? null : _saveDraft,
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: c.wine),
-                      foregroundColor: c.wine,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      textStyle: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w700),
-                    ),
-                    child: const Text('Guardar rascunho'),
-                  ),
+              if (!AuthState.instance.isAdmin) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'O quiz será revisto pela equipa antes de ser publicado.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: c.muted, fontSize: 11),
                 ),
               ],
-              const SizedBox(height: 6),
-              Text(
-                'O quiz será revisto pela equipa antes de ser publicado.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: c.muted, fontSize: 11),
-              ),
             ],
           ),
         ),
       ),
+      ),
     );
   }
 }
+
+enum _ExitAction { exit, cancel, saveDraft }
 
 // ── Editable question state ───────────────────────────────────────────────────
 
@@ -347,6 +499,16 @@ class _QuizInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final diffColor = _diffColor();
+    final authorName = (quiz.author?['name'] ?? quiz.author?['full_name'])?.toString();
+    final articleTitle = quiz.article?['title']?.toString();
+
+    final (statusColor, statusLabel) = switch (quiz.status) {
+      'DRAFT'    => (Colors.grey as Color, 'Rascunho'),
+      'PENDING'  => (const Color(0xFFF59E0B), 'Em revisão'),
+      'REJECTED' => (AppColors.error, 'Rejeitado'),
+      _          => (AppColors.success, 'Publicado'),
+    };
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -357,50 +519,77 @@ class _QuizInfoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: AppColors.wineBg,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                    isAiGenerated
-                        ? Icons.auto_awesome_rounded
-                        : Icons.edit_note_rounded,
-                    color: AppColors.wine,
-                    size: 12),
-                const SizedBox(width: 5),
-                Text(
-                  isAiGenerated ? 'QUIZ GERADO POR IA' : 'QUIZ CRIADO MANUALMENTE',
-                  style: TextStyle(
-                    color: AppColors.wine,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
+          // Source badge + status badge
+          Row(
+            children: [
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.wineBg,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isAiGenerated ? Icons.auto_awesome_rounded : Icons.edit_note_rounded,
+                        color: AppColors.wine,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          isAiGenerated ? 'QUIZ GERADO POR IA' : 'QUIZ CRIADO MANUALMENTE',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.wine,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  statusLabel.toUpperCase(),
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Text(
             quiz.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-                color: c.textMain,
-                fontSize: 17,
-                fontWeight: FontWeight.w900,
-                height: 1.3),
+              color: c.textMain,
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+              height: 1.3,
+            ),
           ),
           const SizedBox(height: 10),
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: diffColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -415,8 +604,7 @@ class _QuizInfoCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Icon(Icons.description_outlined,
-                  size: 14, color: c.muted),
+              Icon(Icons.description_outlined, size: 14, color: c.muted),
               const SizedBox(width: 4),
               Text(
                 '${quiz.questionCount} perguntas',
@@ -424,6 +612,40 @@ class _QuizInfoCard extends StatelessWidget {
               ),
             ],
           ),
+          if (authorName != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.person_outline, size: 14, color: c.muted),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Por $authorName',
+                    style: TextStyle(color: c.muted, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (articleTitle != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(Icons.article_outlined, size: 14, color: c.muted),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    articleTitle,
+                    style: TextStyle(color: c.muted, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -435,11 +657,13 @@ class _QuizInfoCard extends StatelessWidget {
 class _QuestionViewCard extends StatelessWidget {
   final int index;
   final _ReviewQ question;
+  final bool readOnly;
   final VoidCallback onEdit;
 
   const _QuestionViewCard({
     required this.index,
     required this.question,
+    this.readOnly = false,
     required this.onEdit,
   });
 
@@ -473,21 +697,23 @@ class _QuestionViewCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: onEdit,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: Icon(Icons.edit_outlined,
+              if (!readOnly) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: onEdit,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Icon(Icons.edit_outlined,
+                        size: 18, color: c.textSecondary),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(Icons.flag_outlined,
                       size: 18, color: c.textSecondary),
                 ),
-              ),
-              const SizedBox(width: 2),
-              Padding(
-                padding: const EdgeInsets.only(left: 2),
-                child: Icon(Icons.flag_outlined,
-                    size: 18, color: c.textSecondary),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 10),

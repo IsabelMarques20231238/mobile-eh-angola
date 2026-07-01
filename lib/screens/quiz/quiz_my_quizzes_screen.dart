@@ -27,9 +27,18 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
   int _currentPage = 1;
   int _lastPage = 1;
 
-  // index 0 = Todos (null filter), rest map to statuses
-  static const _tabStatuses = <String?>[null, 'APPROVED', 'PENDING', 'REJECTED', 'DRAFT'];
-  static const _tabLabels   = ['Todos', 'Publicado', 'Em revisão', 'Rejeitado', 'Rascunho'];
+  // Admin/super quizzes are published instantly — no PENDING state for them
+  List<String?> get _tabStatuses {
+    final base = <String?>[null, 'APPROVED', 'PENDING', 'REJECTED', 'DRAFT'];
+    if (AuthState.instance.isAdmin) base.remove('PENDING');
+    return base;
+  }
+
+  List<String> get _tabLabels {
+    final base = ['Todos', 'Publicado', 'Em revisão', 'Rejeitado', 'Rascunho'];
+    if (AuthState.instance.isAdmin) base.remove('Em revisão');
+    return base;
+  }
 
   @override
   void initState() {
@@ -95,14 +104,16 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
 
   List<QuizModel> get _filtered {
     final status = _tabStatuses[_selectedTab];
-    if (status == null) return _quizzes;
-    return _quizzes.where((q) => q.status == status).toList();
+    var items = status == null ? _quizzes : _quizzes.where((q) => q.status == status).toList();
+    if (AuthState.instance.isAdmin) items = items.where((q) => q.status != 'PENDING').toList();
+    return items;
   }
 
   int _countFor(int tabIndex) {
     final status = _tabStatuses[tabIndex];
-    if (status == null) return _quizzes.length;
-    return _quizzes.where((q) => q.status == status).length;
+    var items = status == null ? _quizzes : _quizzes.where((q) => q.status == status);
+    if (AuthState.instance.isAdmin) items = items.where((q) => q.status != 'PENDING');
+    return items.length;
   }
 
   Future<void> _deleteQuiz(QuizModel quiz) async {
@@ -237,12 +248,28 @@ class _MyQuizzesScreenState extends State<MyQuizzesScreen> {
   void _openDetail(QuizModel quiz) {
     final isDraft = quiz.status == 'DRAFT';
     final isRejected = quiz.status == 'REJECTED';
+    final isPending = quiz.status == 'PENDING';
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => (isDraft || isRejected)
-            ? QuizAIReviewScreen(quiz: quiz, isAiGenerated: quiz.isAiGenerated)
-            : QuizDetailScreen(quiz: quiz),
+        builder: (_) {
+          if (isDraft || isRejected) {
+            return QuizAIReviewScreen(
+              quiz: quiz,
+              isAiGenerated: quiz.isAiGenerated,
+              popOnExit: true,
+            );
+          }
+          if (isPending) {
+            return QuizAIReviewScreen(
+              quiz: quiz,
+              isAiGenerated: quiz.isAiGenerated,
+              readOnly: true,
+              popOnExit: true,
+            );
+          }
+          return QuizDetailScreen(quiz: quiz);
+        },
       ),
     ).then((_) { if (mounted) _load(); });
   }
@@ -482,7 +509,7 @@ class _MyQuizCard extends StatelessWidget {
     final reviewedAt   = reviewInfo?.reviewedAtHuman;
     final createdAgo   = _timeAgo(quiz.createdAt);
 
-    return Container(
+    final card = Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: c.card,
@@ -631,11 +658,7 @@ class _MyQuizCard extends StatelessWidget {
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      const Icon(
-                        Icons.hourglass_top_rounded,
-                        size: 14,
-                        color: Color(0xFF92400E),
-                      ),
+                      const _SpinningHourglass(),
                       const SizedBox(width: 6),
                       Text(
                         'A aguardar revisão editorial',
@@ -726,6 +749,11 @@ class _MyQuizCard extends StatelessWidget {
         ],
       ),
     );
+
+    if (isPending && !isAdmin) {
+      return GestureDetector(onTap: onView, child: card);
+    }
+    return card;
   }
 }
 
@@ -766,6 +794,45 @@ class _StatChip extends StatelessWidget {
         const SizedBox(width: 3),
         Text(label, style: TextStyle(fontSize: 12, color: color)),
       ],
+    );
+  }
+}
+
+class _SpinningHourglass extends StatefulWidget {
+  const _SpinningHourglass();
+
+  @override
+  State<_SpinningHourglass> createState() => _SpinningHourglassState();
+}
+
+class _SpinningHourglassState extends State<_SpinningHourglass>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RotationTransition(
+      turns: _controller,
+      child: const Icon(
+        Icons.hourglass_top_rounded,
+        size: 14,
+        color: Color(0xFF92400E),
+      ),
     );
   }
 }

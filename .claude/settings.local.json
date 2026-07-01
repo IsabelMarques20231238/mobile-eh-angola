@@ -15,7 +15,8 @@
       "Bash(flutter clean *)",
       "Bash(grep -v \"^--$\")",
       "Bash(dir \"C:\\\\Users\\\\oldma\\\\Downloads\" /b)",
-      "Bash(dart analyze *)"
+      "Bash(dart analyze *)",
+      "Bash(flutter run *)"
     ]
   }
 }

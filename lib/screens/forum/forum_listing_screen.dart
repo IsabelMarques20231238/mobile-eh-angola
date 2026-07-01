@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../models/forum_models.dart';
 import '../../routes/app_routes.dart';
 import '../../services/api_client.dart';
@@ -381,61 +382,62 @@ class _ForumChipBar extends StatelessWidget {
     required this.onSelected,
   });
 
-  static IconData _iconForLabel(String label) {
+  static Widget _iconForLabel(String label, {required double size, required Color color}) {
     final l = label.toLowerCase();
-    if (l == 'para ti') return Icons.star_border_rounded;
-    if (l.contains('econ') || l.contains('finanç') || l.contains('financ')) return Icons.trending_up_rounded;
-    if (l.contains('hist') || l.contains('cultur') || l.contains('tradição')) return Icons.menu_book_outlined;
-    if (l.contains('petr') || l.contains('energ') || l.contains('gás') || l.contains('gas')) return Icons.local_gas_station_outlined;
-    if (l.contains('polít') || l.contains('polit') || l.contains('govern') || l.contains('estado')) return Icons.account_balance_outlined;
-    if (l.contains('tecnol') || l.contains('digital') || l.contains('inovat')) return Icons.devices_rounded;
-    if (l.contains('saúde') || l.contains('saude') || l.contains('médic') || l.contains('medic')) return Icons.health_and_safety_outlined;
-    if (l.contains('educ') || l.contains('ensino') || l.contains('escol')) return Icons.school_outlined;
-    if (l.contains('desport') || l.contains('futebol') || l.contains('sport')) return Icons.sports_soccer_rounded;
-    if (l.contains('social') || l.contains('socie') || l.contains('comuni')) return Icons.people_outline_rounded;
-    if (l.contains('ambient') || l.contains('natur') || l.contains('ecolog')) return Icons.eco_outlined;
-    if (l.contains('arte') || l.contains('músic') || l.contains('music') || l.contains('cine')) return Icons.palette_outlined;
-    if (l.contains('negóci') || l.contains('negoci') || l.contains('empresa')) return Icons.business_outlined;
-    if (l.contains('agricultur') || l.contains('agro')) return Icons.grass_outlined;
-    return Icons.label_outline_rounded;
+    if (l == 'para ti')                                                              return FaIcon(FontAwesomeIcons.star,          size: size, color: color);
+    if (l.contains('agricultur') || l.contains('agro'))                             return FaIcon(FontAwesomeIcons.tractor,       size: size, color: color);
+    if (l.contains('comér') || l.contains('comer') || l.contains('mercad'))         return FaIcon(FontAwesomeIcons.store,         size: size, color: color);
+    if (l.contains('finanç') || l.contains('financ') || l.contains('econ'))         return FaIcon(FontAwesomeIcons.chartLine,     size: size, color: color);
+    if (l.contains('hist') || l.contains('cultur') || l.contains('tradição'))       return FaIcon(FontAwesomeIcons.book,          size: size, color: color);
+    if (l.contains('petr') || l.contains('energ') || l.contains('gás') || l.contains('gas')) return FaIcon(FontAwesomeIcons.gasPump,   size: size, color: color);
+    if (l.contains('polít') || l.contains('polit') || l.contains('govern') || l.contains('estado')) return FaIcon(FontAwesomeIcons.landmark, size: size, color: color);
+    if (l.contains('tecnol') || l.contains('digital') || l.contains('inovat'))      return FaIcon(FontAwesomeIcons.laptop,        size: size, color: color);
+    if (l.contains('saúde') || l.contains('saude') || l.contains('médic') || l.contains('medic')) return FaIcon(FontAwesomeIcons.stethoscope, size: size, color: color);
+    if (l.contains('educ') || l.contains('ensino') || l.contains('escol'))          return FaIcon(FontAwesomeIcons.graduationCap, size: size, color: color);
+    if (l.contains('desport') || l.contains('futebol') || l.contains('sport'))      return FaIcon(FontAwesomeIcons.futbol,        size: size, color: color);
+    if (l.contains('social') || l.contains('socie') || l.contains('comuni'))        return FaIcon(FontAwesomeIcons.users,         size: size, color: color);
+    if (l.contains('ambient') || l.contains('natur') || l.contains('ecolog'))       return FaIcon(FontAwesomeIcons.leaf,          size: size, color: color);
+    if (l.contains('arte') || l.contains('músic') || l.contains('music') || l.contains('cine')) return FaIcon(FontAwesomeIcons.music,  size: size, color: color);
+    if (l.contains('negóci') || l.contains('negoci') || l.contains('empresa'))      return FaIcon(FontAwesomeIcons.briefcase,     size: size, color: color);
+    return FaIcon(FontAwesomeIcons.tag, size: size, color: color);
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     return SizedBox(
-      height: 46,
+      height: 52,
       child: ListView.separated(
         clipBehavior: Clip.none,
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(vertical: 10),
         itemCount: labels.length,
         separatorBuilder: (_, _) => const SizedBox(width: 10),
         itemBuilder: (_, index) {
           final active = selected == index;
-          final icon = _iconForLabel(labels[index]);
+          final color = active ? Colors.white : c.muted;
           return InkWell(
             onTap: () => onSelected(index),
-            borderRadius: BorderRadius.circular(23),
+            borderRadius: BorderRadius.circular(20),
             child: Container(
-              height: 46,
-              padding: const EdgeInsets.symmetric(horizontal: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
                 color: active ? c.wine : c.card,
-                borderRadius: BorderRadius.circular(23),
+                borderRadius: BorderRadius.circular(20),
                 border: Border.all(
                   color: active ? c.wine : c.border,
                 ),
               ),
               child: Row(
                 children: [
-                  Icon(icon, size: 19, color: active ? Colors.white : c.muted),
-                  const SizedBox(width: 8),
+                  _iconForLabel(labels[index], size: 16, color: color),
+                  const SizedBox(width: 6),
                   Text(
                     labels[index],
                     style: TextStyle(
                       color: active ? Colors.white : c.textMain,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
@@ -539,7 +541,7 @@ class _TopicCardState extends State<_TopicCard> {
                       else
                         _CategoryBadge(category: topic.category),
                       const SizedBox(width: 12),
-                      _VisibilityBadge(visibility: topic.visibility),
+                      _VisibilityBadge(visibility: topic.visibility, hasAccess: topic.hasAccess),
                       const Spacer(),
                       Text(
                         topic.timeAgo,
@@ -707,13 +709,15 @@ class _CategoryBadge extends StatelessWidget {
 
 class _VisibilityBadge extends StatelessWidget {
   final TopicVisibility visibility;
+  final bool hasAccess;
 
-  const _VisibilityBadge({required this.visibility});
+  const _VisibilityBadge({required this.visibility, this.hasAccess = false});
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final isPrivate = visibility == TopicVisibility.privado;
+    final unlocked = isPrivate && hasAccess;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -726,14 +730,16 @@ class _VisibilityBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (isPrivate) ...[
-            const Icon(
-              Icons.lock_outline_rounded,
-              size: 14,
-              color: Color(0xFFE11D48),
-            ),
-            const SizedBox(width: 5),
-          ],
+          Icon(
+            isPrivate
+                ? (unlocked ? Icons.lock_open_rounded : Icons.lock_outline_rounded)
+                : Icons.public_rounded,
+            size: 14,
+            color: isPrivate
+                ? (unlocked ? const Color(0xFF10B981) : const Color(0xFFE11D48))
+                : c.muted,
+          ),
+          const SizedBox(width: 5),
           Text(
             isPrivate ? 'Privado' : 'Público',
             style: TextStyle(

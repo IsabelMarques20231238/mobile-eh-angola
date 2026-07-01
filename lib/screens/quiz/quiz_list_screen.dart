@@ -94,7 +94,7 @@ class _QuizListScreenState extends State<QuizListScreen>
     return Scaffold(
       backgroundColor: c.bg,
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(74),
+        preferredSize: Size.fromHeight(_showSearch ? 136 : 74),
         child: SafeArea(
           bottom: false,
           child: EhAngolaHeader(
@@ -209,6 +209,13 @@ class _FilterBar extends StatelessWidget {
 
   const _FilterBar({required this.selected, required this.onSelected});
 
+  static IconData _iconFor(QuizDifficulty? d) => switch (d) {
+        null                  => Icons.apps_rounded,
+        QuizDifficulty.easy   => Icons.eco_rounded,
+        QuizDifficulty.medium => Icons.bolt_rounded,
+        QuizDifficulty.hard   => Icons.local_fire_department_rounded,
+      };
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -228,19 +235,30 @@ class _FilterBar extends StatelessWidget {
             onTap: () => onSelected(f),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
                 color: active ? AppColors.wine : c.bg,
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: active ? AppColors.wine : c.border),
               ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : c.textSecondary,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _iconFor(f),
+                    size: 16,
+                    color: active ? Colors.white : c.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: active ? Colors.white : c.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -368,8 +386,9 @@ class _QuizCard extends StatelessWidget {
                   text: quiz.difficulty.toUpperCase(),
                   fg: diff,
                   bg: diff.withValues(alpha: 0.1),
+                  icon: _FilterBar._iconFor(quiz.difficultyEnum),
                 ),
-                const Spacer(),
+                const SizedBox(width: 6),
                 _Badge(
                   text: quiz.categoryName.toUpperCase(),
                   fg: AppColors.wine,
@@ -428,17 +447,27 @@ class _Badge extends StatelessWidget {
   final String text;
   final Color fg;
   final Color bg;
-  const _Badge({required this.text, required this.fg, required this.bg});
+  final IconData? icon;
+  const _Badge({required this.text, required this.fg, required this.bg, this.icon});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
-      child: Text(
-        text,
-        style: TextStyle(
-            fontSize: 10, fontWeight: FontWeight.w700, color: fg, letterSpacing: 0.5),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: fg),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            text,
+            style: TextStyle(
+                fontSize: 10, fontWeight: FontWeight.w700, color: fg, letterSpacing: 0.5),
+          ),
+        ],
       ),
     );
   }

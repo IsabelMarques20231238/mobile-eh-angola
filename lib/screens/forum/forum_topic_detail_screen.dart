@@ -645,7 +645,7 @@ class _TopicBodyCard extends StatelessWidget {
           const SizedBox(height: 16),
           Row(
             children: [
-              _PublicBadge(isPrivate: topic.visibility == TopicVisibility.privado),
+              _PublicBadge(isPrivate: topic.visibility == TopicVisibility.privado, hasAccess: topic.hasAccess),
               const SizedBox(width: 14),
               Text(
                 topic.timeAgo,
@@ -1393,11 +1393,13 @@ class _CommentCardState extends State<_CommentCard> {
 
 class _PublicBadge extends StatelessWidget {
   final bool isPrivate;
+  final bool hasAccess;
 
-  const _PublicBadge({required this.isPrivate});
+  const _PublicBadge({required this.isPrivate, this.hasAccess = false});
 
   @override
   Widget build(BuildContext context) {
+    final unlocked = isPrivate && hasAccess;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
@@ -1408,10 +1410,12 @@ class _PublicBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isPrivate ? Icons.lock_outline_rounded : Icons.circle,
-            size: isPrivate ? 15 : 8,
+            isPrivate
+                ? (unlocked ? Icons.lock_open_rounded : Icons.lock_outline_rounded)
+                : Icons.public_rounded,
+            size: 15,
             color: isPrivate
-                ? const Color(0xFFE11D48)
+                ? (unlocked ? const Color(0xFF10B981) : const Color(0xFFE11D48))
                 : const Color(0xFF10B981),
           ),
           const SizedBox(width: 8),

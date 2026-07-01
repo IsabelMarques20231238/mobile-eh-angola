@@ -37,6 +37,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
   Map<String, dynamic>? _selectedArticle;
   final List<_ManualQuestion> _questions = [_ManualQuestion()];
   bool _submitting = false;
+  bool _exiting = false;
 
   @override
   void initState() {
@@ -62,28 +63,31 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     if (mounted) setState(() => _loadingCategories = false);
   }
 
+  bool _isQuestionComplete(_ManualQuestion q) =>
+      q.questionCtrl.text.trim().isNotEmpty &&
+      q.correctIndex >= 0 &&
+      q.explanationCtrl.text.trim().isNotEmpty &&
+      q.optionCtrls.every((o) => o.text.trim().isNotEmpty);
+
   bool get _canSubmit {
     if (_submitting) return false;
     if (_titleCtrl.text.trim().isEmpty) return false;
     if (_selectedArticle == null) return false;
     if (!_aiMode) {
-      if (_questions.isEmpty) return false;
-      for (final q in _questions) {
-        if (q.questionCtrl.text.trim().isEmpty) return false;
-        if (q.correctIndex < 0) return false;
-        if (q.explanationCtrl.text.trim().isEmpty) return false;
-        for (final opt in q.optionCtrls) {
-          if (opt.text.trim().isEmpty) return false;
-        }
-      }
+      final complete = _questions.where(_isQuestionComplete).length;
+      if (complete < 3) return false;
+      // All added questions must be complete — partial ones block submission.
+      if (_questions.length != complete) return false;
     }
     return true;
   }
 
+  // Draft needs title + article + at least 3 complete questions.
   bool get _canSaveDraft =>
       !_submitting &&
       _titleCtrl.text.trim().isNotEmpty &&
-      _selectedArticle != null;
+      _selectedArticle != null &&
+      _questions.where(_isQuestionComplete).length >= 3;
 
   Future<void> _pickArticle() async {
     final result = await showModalBottomSheet<Map<String, dynamic>>(
@@ -147,9 +151,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
         'difficulty': _diffApi[_difficulty],
         'article_id': articleId,
         if (_selectedCategoryId != null) 'category_id': _selectedCategoryId,
-        // AUTHOR: API needs explicit DRAFT so quiz isn't auto-published.
-        // ADMIN: omit status → API publishes directly as APPROVED.
-        if (!AuthState.instance.isAdmin) 'status': 'DRAFT',
+        'status': 'DRAFT',
         'questions': questions,
       });
       if (!mounted) return;
@@ -168,6 +170,39 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
   }
 
   Future<void> _saveDraft() async {
+    if (_aiMode) {
+      if (_titleCtrl.text.trim().isEmpty || _selectedArticle == null) return;
+      setState(() => _submitting = true);
+      try {
+        final title = _titleCtrl.text.trim();
+        final articleId = _selectedArticle!['id'] as int;
+        final articleTitle = _selectedArticle!['title']?.toString() ?? title;
+        await _service.generateAiQuiz(
+          title: title,
+          topic: articleTitle,
+          difficulty: _diffApi[_difficulty],
+          numQuestions: _questionCount,
+          articleId: articleId,
+          categoryId: _selectedCategoryId,
+          description: _descriptionCtrl.text.trim().isEmpty ? null : _descriptionCtrl.text.trim(),
+          context: _contextCtrl.text.trim().isEmpty ? null : _contextCtrl.text.trim(),
+        );
+        if (!mounted) return;
+        showAppToast(context, 'Rascunho guardado!', type: AppToastType.success);
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MyQuizzesScreen()),
+          (route) => route.isFirst,
+        );
+      } on ApiException catch (e) {
+        if (mounted) _showError(e.message);
+      } catch (_) {
+        if (mounted) _showError('Ocorreu um erro inesperado. Tenta novamente.');
+      } finally {
+        if (mounted) setState(() => _submitting = false);
+      }
+      return;
+    }
     if (!_canSaveDraft) return;
     setState(() => _submitting = true);
     try {
@@ -236,11 +271,140 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     ));
   }
 
+  bool get _hasUnsavedChanges {
+    if (_titleCtrl.text.trim().isNotEmpty) return true;
+    if (_selectedArticle != null) return true;
+    if (_contextCtrl.text.trim().isNotEmpty) return true;
+    if (!_aiMode &&
+        _questions.any((q) =>
+            q.questionCtrl.text.trim().isNotEmpty ||
+            q.explanationCtrl.text.trim().isNotEmpty ||
+            q.optionCtrls.any((o) => o.text.trim().isNotEmpty))) return true;
+    return false;
+  }
+
+  void _handleBack() {
+    if (!_hasUnsavedChanges) {
+      setState(() => _exiting = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pop(context);
+      });
+      return;
+    }
+    _showExitDialog();
+  }
+
+  Future<void> _showExitDialog() async {
+    if (!mounted) return;
+    FocusScope.of(context).unfocus();
+    final canSave = _canSaveDraft ||
+        (_aiMode && _titleCtrl.text.trim().isNotEmpty && _selectedArticle != null);
+    final result = await showDialog<_ExitAction>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final c = ctx.c;
+        return Dialog(
+          backgroundColor: c.card,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sair sem guardar?',
+                  style: TextStyle(
+                    color: c.textMain,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _aiMode
+                      ? 'Se saíres agora, a configuração do quiz será perdida e terás de recomeçar do zero.'
+                      : canSave
+                          ? 'Tens perguntas preenchidas. Podes guardar como rascunho e continuar mais tarde.'
+                          : 'Se saíres agora, todo o progresso será perdido.',
+                  style: TextStyle(
+                    color: c.textSecondary,
+                    fontSize: 14,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, _ExitAction.exit),
+                      style: TextButton.styleFrom(foregroundColor: AppColors.error),
+                      child: const Text('Continuar',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, _ExitAction.cancel),
+                      style: TextButton.styleFrom(
+                          foregroundColor: c.textSecondary),
+                      child: const Text('Cancelar',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
+                if (canSave) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: ElevatedButton(
+                      onPressed: () =>
+                          Navigator.pop(ctx, _ExitAction.saveDraft),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.wine,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        textStyle: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w700),
+                      ),
+                      child: const Text('Guardar rascunho'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (!mounted) return;
+    switch (result) {
+      case _ExitAction.exit:
+        setState(() => _exiting = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.pop(context);
+        });
+      case _ExitAction.saveDraft:
+        await _saveDraft();
+      case _ExitAction.cancel:
+      case null:
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final canSubmit = _canSubmit;
-    return Scaffold(
+    return PopScope(
+      canPop: _exiting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleBack();
+      },
+      child: Scaffold(
       backgroundColor: c.card,
       appBar: AppBar(
         backgroundColor: c.card,
@@ -248,7 +412,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
         toolbarHeight: 64,
         leading: IconButton(
           icon: Icon(Icons.close, color: c.textSecondary, size: 26),
-          onPressed: () => Navigator.pop(context),
+          onPressed: _handleBack,
         ),
         centerTitle: true,
         title: Text(
@@ -439,10 +603,9 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
       bottomNavigationBar: _BottomBar(
         aiMode: _aiMode,
         canSubmit: canSubmit,
-        canSaveDraft: _canSaveDraft,
         submitting: _submitting,
         onSubmit: _submit,
-        onSaveDraft: _saveDraft,
+      ),
       ),
     );
   }
@@ -483,18 +646,14 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
 class _BottomBar extends StatelessWidget {
   final bool aiMode;
   final bool canSubmit;
-  final bool canSaveDraft;
   final bool submitting;
   final VoidCallback onSubmit;
-  final VoidCallback onSaveDraft;
 
   const _BottomBar({
     required this.aiMode,
     required this.canSubmit,
-    required this.canSaveDraft,
     required this.submitting,
     required this.onSubmit,
-    required this.onSaveDraft,
   });
 
   @override
@@ -537,31 +696,23 @@ class _BottomBar extends StatelessWidget {
               ),
             ),
             if (!aiMode) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 48,
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: canSaveDraft && !submitting ? onSaveDraft : null,
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: AppColors.wine),
-                    foregroundColor: AppColors.wine,
-                    disabledForegroundColor: Colors.grey,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    textStyle: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w700),
-                  ),
-                  child: const Text('Guardar rascunho'),
+              if (!canSubmit) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Mínimo de 3 perguntas completas para criar.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: c.muted, fontSize: 11),
                 ),
-              ),
+              ],
             ] else ...[
-              const SizedBox(height: 8),
-              Text(
-                'O quiz será enviado para aprovação antes de ser publicado.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: c.muted, fontSize: 11),
-              ),
+              if (!AuthState.instance.isAdmin) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'O quiz será enviado para aprovação antes de ser publicado.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: c.muted, fontSize: 11),
+                ),
+              ],
             ],
           ],
         ),
@@ -1271,3 +1422,5 @@ class _DifficultySelector extends StatelessWidget {
     );
   }
 }
+
+enum _ExitAction { exit, cancel, saveDraft }

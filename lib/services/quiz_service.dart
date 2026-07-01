@@ -154,6 +154,7 @@ class QuizService {
       'topic': topic,
       'difficulty': difficulty,
       'num_questions': numQuestions,
+      'status': 'DRAFT',
     };
     if (categoryId != null) body['category_id'] = categoryId;
     if (articleId != null) body['article_id'] = articleId;
@@ -177,15 +178,21 @@ class QuizService {
     throw const ApiException('Erro ao criar quiz.');
   }
 
-  /// Submits a DRAFT quiz for editorial review (AUTHOR only).
-  /// Calls PUT /api/quizzes/{id}/submit → returns updated QuizModel (status PENDING).
-  Future<QuizModel> submitDraftForReview(int id) async {
+  Future<QuizModel> updateQuiz(int id, Map<String, dynamic> body) async {
+    final payload =
+        await _api.put('/quizzes/$id', body: body, authenticated: true);
+    if (payload is Map<String, dynamic>) return QuizModel.fromJson(payload);
+    throw const ApiException('Erro ao actualizar quiz.');
+  }
+
+  Future<QuizModel> submitForReview(int id) async {
     final payload = await _api.put(
       '/quizzes/$id/submit',
+      body: {},
       authenticated: true,
     );
     if (payload is Map<String, dynamic>) return QuizModel.fromJson(payload);
-    throw const ApiException('Erro ao submeter o quiz para revisão.');
+    throw const ApiException('Erro ao enviar quiz para revisão.');
   }
 
   Future<({List<QuizModel> quizzes, int currentPage, int lastPage})> getMyQuizzes({int page = 1, String? status}) async {

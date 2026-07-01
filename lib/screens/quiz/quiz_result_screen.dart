@@ -161,36 +161,6 @@ class QuizResultScreen extends StatelessWidget {
                 ),
               ],
             ),
-            // First attempt bonus
-            if (attempt.isFirstAttempt == true) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: const Color(0xFFFDE68A)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.star_rounded,
-                        color: Color(0xFFD97706), size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Primeira tentativa! Ganhaste ${attempt.pointsEarned} pontos Jindungo.',
-                        style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF92400E),
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
             // Recommended content
             if (relatedArticles.isNotEmpty) ...[
               const SizedBox(height: 28),

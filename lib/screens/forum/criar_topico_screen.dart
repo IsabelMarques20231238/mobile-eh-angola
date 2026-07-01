@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../models/forum_models.dart';
 import '../../services/api_client.dart';
@@ -991,6 +992,25 @@ class _CategoryDropdown extends StatelessWidget {
     required this.onChanged,
   });
 
+  static Widget _categoryIcon(String name) {
+    final l = name.toLowerCase();
+    if (l.contains('agricultur') || l.contains('agro'))                                           return const FaIcon(FontAwesomeIcons.tractor,       size: 15, color: AppColors.textSecondary);
+    if (l.contains('comér') || l.contains('comer') || l.contains('mercad'))                       return const FaIcon(FontAwesomeIcons.store,         size: 15, color: AppColors.textSecondary);
+    if (l.contains('finanç') || l.contains('financ') || l.contains('econ'))                       return const FaIcon(FontAwesomeIcons.chartLine,     size: 15, color: AppColors.textSecondary);
+    if (l.contains('hist') || l.contains('cultur') || l.contains('tradição'))                     return const FaIcon(FontAwesomeIcons.book,          size: 15, color: AppColors.textSecondary);
+    if (l.contains('petr') || l.contains('energ') || l.contains('gás') || l.contains('gas'))      return const FaIcon(FontAwesomeIcons.gasPump,       size: 15, color: AppColors.textSecondary);
+    if (l.contains('polít') || l.contains('polit') || l.contains('govern') || l.contains('estado')) return const FaIcon(FontAwesomeIcons.landmark,    size: 15, color: AppColors.textSecondary);
+    if (l.contains('tecnol') || l.contains('digital') || l.contains('inovat'))                    return const FaIcon(FontAwesomeIcons.laptop,        size: 15, color: AppColors.textSecondary);
+    if (l.contains('saúde') || l.contains('saude') || l.contains('médic') || l.contains('medic')) return const FaIcon(FontAwesomeIcons.stethoscope,   size: 15, color: AppColors.textSecondary);
+    if (l.contains('educ') || l.contains('ensino') || l.contains('escol'))                        return const FaIcon(FontAwesomeIcons.graduationCap, size: 15, color: AppColors.textSecondary);
+    if (l.contains('desport') || l.contains('futebol') || l.contains('sport'))                    return const FaIcon(FontAwesomeIcons.futbol,        size: 15, color: AppColors.textSecondary);
+    if (l.contains('social') || l.contains('socie') || l.contains('comuni'))                      return const FaIcon(FontAwesomeIcons.users,         size: 15, color: AppColors.textSecondary);
+    if (l.contains('ambient') || l.contains('natur') || l.contains('ecolog'))                     return const FaIcon(FontAwesomeIcons.leaf,          size: 15, color: AppColors.textSecondary);
+    if (l.contains('arte') || l.contains('músic') || l.contains('music') || l.contains('cine'))   return const FaIcon(FontAwesomeIcons.music,         size: 15, color: AppColors.textSecondary);
+    if (l.contains('negóci') || l.contains('negoci') || l.contains('empresa'))                    return const FaIcon(FontAwesomeIcons.briefcase,     size: 15, color: AppColors.textSecondary);
+    return const FaIcon(FontAwesomeIcons.tag, size: 15, color: AppColors.textSecondary);
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = categories.isEmpty
@@ -1002,7 +1022,7 @@ class _CategoryDropdown extends StatelessWidget {
         : categories.map((cat) => DropdownMenuItem<ForumCategory>(
             value: cat,
             child: Row(children: [
-              const Icon(Icons.grid_view_rounded, size: 16, color: AppColors.textSecondary),
+              _categoryIcon(cat.name),
               const SizedBox(width: 10),
               Text(cat.name, style: const TextStyle(fontSize: 14, color: AppColors.textMain, fontWeight: FontWeight.w500)),
             ]),
